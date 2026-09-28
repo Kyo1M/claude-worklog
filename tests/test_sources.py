@@ -50,6 +50,8 @@ def test_claude_prompt_extraction():
                 "<command-message>x</command-message><command-name>/review</command-name><command-args>PR 12</command-args>",
             ),
             claude_prompt("2026-09-28 10:07", "/w", "[Request interrupted by user]"),
+            claude_prompt("2026-09-28 10:08", "/w", "<command-name>/clear</command-name><command-args></command-args>"),
+            claude_prompt("2026-09-28 10:09", "/w", "/compact"),
         ],
     )
     assert prompts(records) == ["集計を直して", "テストも書いて", "/review PR 12"]

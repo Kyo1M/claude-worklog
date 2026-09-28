@@ -71,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--to", dest="end", help="終了日 YYYY-MM-DD")
     p.add_argument("--project", help="プロジェクト名で絞る")
     p.add_argument("--max-prompts", type=int, default=8, help="セッションごとの依頼文の上限(既定 8)")
+    p.add_argument("--prompt-chars", type=int, default=200, help="依頼文ごとの文字数の上限(既定 200)")
     p.add_argument("--json", action="store_true", help="JSON で出力")
     p.set_defaults(func=cmd_material)
 
@@ -226,7 +227,7 @@ def cmd_material(args, config: Config) -> int:
     resolver = Resolver(config.aliases, config.clients, config.roots)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
     usage = compute(store, config, resolver, start, end, "repo", adjustments)
-    data = material_mod.build(store, config, resolver, usage, args.project, args.max_prompts)
+    data = material_mod.build(store, config, resolver, usage, args.project, args.max_prompts, args.prompt_chars)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:

@@ -31,6 +31,7 @@ def seed(env):
         [
             claude_prompt("2026-09-28 10:00", app, "集計を直して"),
             {"type": "ai-title", "aiTitle": "集計の修正", "sessionId": "s1"},
+            claude_prompt("2026-09-28 10:05", app, "集計を直して"),
             claude_line("2026-09-28 10:30", app),
             claude_line("2026-09-28 10:40", app),
         ],
@@ -42,7 +43,7 @@ def test_day(env, capsys):
     cfg = seed(env)
     assert main(["day", "2026-09-28", "--config", cfg]) == 0
     out = capsys.readouterr().out
-    assert "app" in out and "12m" in out  # 10:00 の 1 分 + 10:30〜10:40 の 11 分
+    assert "app" in out and "17m" in out  # 10:00〜10:05 の 6 分 + 10:30〜10:40 の 11 分
     assert "2026-09-28 (月)" in out
 
 
@@ -63,7 +64,7 @@ def test_week_and_month_by_client(env, capsys):
 def test_export(env, capsys):
     cfg = seed(env)
     assert main(["export", "--from", "2026-09-01", "--to", "2026-09-30", "--grain", "month", "--config", cfg]) == 0
-    assert capsys.readouterr().out.splitlines()[1] == "2026-09,Client,app,12,0.20"
+    assert capsys.readouterr().out.splitlines()[1] == "2026-09,Client,app,17,0.28"
 
 
 def test_material_json(env, capsys):
@@ -71,10 +72,10 @@ def test_material_json(env, capsys):
     assert main(["material", "--date", "2026-09-28", "--json", "--config", cfg]) == 0
     data = json.loads(capsys.readouterr().out)
     [project] = data["projects"]
-    assert project["name"] == "app" and project["minutes"] == 12
+    assert project["name"] == "app" and project["minutes"] == 17
     [session] = project["sessions"]
     assert session["title"] == "集計の修正"
-    assert session["prompts"][0]["text"] == "集計を直して"
+    assert [p["text"] for p in session["prompts"]] == ["集計を直して"]
     assert session["start"].startswith("2026-09-28T10:00")
 
 

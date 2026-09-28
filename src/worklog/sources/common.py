@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime
 
 PROMPT_MAX_CHARS = 500
+# 作業内容の手がかりにならない組み込みコマンド
+IGNORED_COMMANDS = {
+    "/clear", "/compact", "/exit", "/quit", "/model", "/resume", "/config", "/cost", "/status", "/help",
+    "/login", "/logout", "/effort", "/fast", "/permissions", "/memory", "/context", "/usage", "/rewind",
+}
 
 
 @dataclass(frozen=True)
@@ -58,7 +63,12 @@ def clean_prompt(text: str) -> str | None:
     name = _COMMAND_NAME.search(text)
     if name:
         args = _COMMAND_ARGS.search(text)
-        text = f"{name.group(1).strip()} {args.group(1).strip() if args else ''}".strip()
+        command = name.group(1).strip()
+        if command in IGNORED_COMMANDS:
+            return None
+        text = f"{command} {args.group(1).strip() if args else ''}".strip()
     elif text.startswith("<") or text.startswith("[Request interrupted"):
+        return None
+    elif text.split(maxsplit=1)[0] in IGNORED_COMMANDS:
         return None
     return text[:PROMPT_MAX_CHARS]

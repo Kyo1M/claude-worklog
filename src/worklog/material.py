@@ -53,7 +53,7 @@ def build(
         target = entry(s.cwd)
         if target is None:
             continue
-        prompts = prompts_by_session.get((s.source, s.session_id), [])
+        prompts = _unique(prompts_by_session.get((s.source, s.session_id), []))
         target["sessions"].append(
             {
                 "source": s.source,
@@ -84,6 +84,16 @@ def build(
         "gap_minutes": config.gap_minutes,
         "projects": ordered,
     }
+
+
+def _unique(prompts: list) -> list:
+    """同じ依頼文の重複(再送・キューからの再投入)は最初の 1 件だけにする。"""
+    seen, result = set(), []
+    for p in prompts:
+        if p.text not in seen:
+            seen.add(p.text)
+            result.append(p)
+    return result
 
 
 def _iso(calendar: LocalCalendar, minute: int) -> str:
