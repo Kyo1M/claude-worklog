@@ -47,3 +47,13 @@ def test_fmt_minutes():
     assert fmt_minutes(205) == "3h25m"
     assert fmt_minutes(47) == "47m"
     assert fmt_minutes(-15) == "-15m"
+
+
+def test_stack_groups_merge_minor_units():
+    from worklog.render import OTHER, STACK_LIMIT, stack_groups
+
+    units = [f"p{i}" for i in range(10)] + [UNASSIGNED]
+    series, groups = stack_groups(units)
+    assert series == units[:STACK_LIMIT] + [OTHER, UNASSIGNED]
+    assert groups[OTHER] == units[STACK_LIMIT:10]
+    assert stack_groups(units[:8])[0] == units[:8]

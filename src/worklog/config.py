@@ -41,6 +41,7 @@ class Config:
     gap_minutes: int = 15
     aliases: list[tuple[str, str]] = field(default_factory=list)
     clients: list[tuple[str, list[str]]] = field(default_factory=list)
+    roots: list[str] = field(default_factory=list)
 
     @property
     def tz(self) -> tzinfo | None:
@@ -96,6 +97,10 @@ def load_config(path: Path | None = None) -> Config:
     if "adjustments" in raw:
         config.adjustments_path = Path(expand(raw["adjustments"]))
 
+    roots = raw.get("roots", [])
+    if isinstance(roots, str):
+        roots = [roots]
+    config.roots = [expand(r) for r in roots]
     config.aliases = [(expand(k), expand(v)) for k, v in raw.get("aliases", {}).items()]
     clients = []
     for name, patterns in raw.get("clients", {}).items():
@@ -110,6 +115,7 @@ TEMPLATE = """\
 # worklog の設定ファイル
 # timezone = "Asia/Tokyo"   # 省略時はシステムのローカル
 gap_minutes = 15            # イベントの間隔がこれ以下(分)なら稼働をつなげる
+# roots = ["~/Developer"]   # git リポジトリでないときは、この直下のディレクトリをプロジェクトとみなす
 
 # [sources]
 # claude = "~/.claude/projects"

@@ -21,23 +21,49 @@ class Project:
 
 
 class Resolver:
-    def __init__(self, aliases: list[tuple[str, str]], clients: list[tuple[str, list[str]]]):
+    def __init__(
+        self,
+        aliases: list[tuple[str, str]],
+        clients: list[tuple[str, list[str]]],
+        roots: list[str] | None = None,
+    ):
         # 長いパターンを先に当てる
         self.aliases = sorted(((_strip_star(a), _strip_star(b)) for a, b in aliases), key=lambda x: -len(x[0]))
         self.clients = clients
+        self.roots = sorted((_strip_star(r) for r in roots or []), key=len, reverse=True)
         self._repo_cache: dict[str, str | None] = {}
         self._names: dict[str, str] = {}
 
     def apply_alias(self, cwd: str) -> str:
-        for old, new in self.aliases:
-            if cwd == old or cwd.startswith(old + "/"):
-                return new + cwd[len(old):]
+        """書き換えが止まるまで繰り返す(旧パス → 中間のパス → 現在のパス をたどれるように)。"""
+        for _ in range(10):
+            for old, new in self.aliases:
+                if cwd == old or cwd.startswith(old + "/"):
+                    cwd = new + cwd[len(old):]
+                    break
+            else:
+                return cwd
         return cwd
 
     def repo(self, cwd: str) -> str | None:
         if cwd not in self._repo_cache:
-            self._repo_cache[cwd] = find_repo(self.apply_alias(cwd)) if cwd else None
+            self._repo_cache[cwd] = self._resolve(cwd) if cwd else None
         return self._repo_cache[cwd]
+
+    def _resolve(self, cwd: str) -> str | None:
+        path = self.apply_alias(cwd)
+        repo = find_repo(path)
+        if repo:
+            moved = self.apply_alias(repo)  # worktree が旧パスの本体を指している場合
+            return repo if moved == repo else find_repo(moved) or moved
+        return self._root_project(path)
+
+    def _root_project(self, path: str) -> str | None:
+        """git リポジトリでないときは、roots の直下のディレクトリをプロジェクトとみなす。"""
+        for root in self.roots:
+            if path.startswith(root + "/"):
+                return f"{root}/{path[len(root) + 1:].split('/')[0]}"
+        return None
 
     def client(self, repo: str | None) -> str:
         if repo is None:

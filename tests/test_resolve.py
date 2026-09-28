@@ -72,3 +72,39 @@ def test_duplicate_names_get_parent_prefix(tmp_path):
     assert resolver.project(str(b)).name == "y/app"
     assert resolver.project(str(c)).name == "solo"
     assert resolver.client_for_name("solo") == NO_CLIENT
+
+
+def test_aliases_are_applied_until_stable(tmp_path):
+    repo = make_repo(tmp_path / "Developer" / "client" / "app")
+    resolver = Resolver(
+        [
+            (f"{tmp_path}/Documents/*", f"{tmp_path}/Developer/*"),
+            (f"{tmp_path}/Developer/app", f"{tmp_path}/Developer/client/app"),
+        ],
+        [],
+    )
+    assert resolver.repo(f"{tmp_path}/Documents/app/docs") == str(repo)
+
+
+def test_alias_cycle_does_not_hang(tmp_path):
+    resolver = Resolver([(f"{tmp_path}/a", f"{tmp_path}/b"), (f"{tmp_path}/b", f"{tmp_path}/a")], [])
+    assert resolver.repo(f"{tmp_path}/a") is None
+
+
+def test_worktree_pointing_to_old_path_follows_alias(tmp_path):
+    main = make_repo(tmp_path / "Developer" / "app")
+    worktree = tmp_path / "worktrees" / "app"
+    worktree.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {tmp_path}/Documents/app/.git/worktrees/x\n")
+    resolver = Resolver([(f"{tmp_path}/Documents/*", f"{tmp_path}/Developer/*")], [])
+    assert resolver.repo(str(worktree)) == str(main)
+
+
+def test_roots_make_projects_without_git(tmp_path):
+    root = tmp_path / "Developer"
+    (root / "notes" / "sub").mkdir(parents=True)
+    resolver = Resolver([], [], roots=[str(root)])
+    assert resolver.repo(str(root / "notes" / "sub")) == str(root / "notes")
+    assert resolver.repo(str(root / "gone" / "x")) == str(root / "gone")
+    assert resolver.repo(str(root)) is None
+    assert resolver.repo(str(tmp_path / "other")) is None

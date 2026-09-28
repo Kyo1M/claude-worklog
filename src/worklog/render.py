@@ -16,6 +16,9 @@ PALETTE = [33, 208, 41, 170, 220, 45, 203, 141, 106, 214]
 GRAY = 245
 EIGHTHS = " ▏▎▍▌▋▊▉█"
 PLAIN_FILLS = "█▓▒░#=+*%@"
+STACK_LIMIT = 7  # 積み上げバーで個別に色分けする件数。残りは「その他」にまとめる
+OTHER = "その他"
+SPECIAL_FILLS = {UNASSIGNED: "·", NO_CLIENT: "·", OTHER: ":"}
 NOTE = "※ AI とやりとりしていた時間の推定です。会議や AI を使わない作業は含みません。"
 
 
@@ -61,9 +64,9 @@ class Style:
 
     @classmethod
     def for_units(cls, units: list[str], color: bool) -> "Style":
-        colors, i = {}, 0
+        colors, i = {OTHER: GRAY}, 0
         for u in units:
-            if u in (UNASSIGNED, NO_CLIENT):
+            if u in SPECIAL_FILLS:
                 colors[u] = GRAY
             else:
                 colors[u] = PALETTE[i % len(PALETTE)]
@@ -82,9 +85,9 @@ class Style:
         """色が無いときはプロジェクトごとに塗りの文字を変える。未分類は「·」。"""
         if self.color:
             return "█"
-        if unit in (UNASSIGNED, NO_CLIENT):
-            return "·"
-        regular = [u for u in units if u not in (UNASSIGNED, NO_CLIENT)]
+        if unit in SPECIAL_FILLS:
+            return SPECIAL_FILLS[unit]
+        regular = [u for u in units if u not in SPECIAL_FILLS]
         return PLAIN_FILLS[regular.index(unit) % len(PLAIN_FILLS)]
 
 
@@ -179,13 +182,15 @@ def render_rows(
     bar_width: int = 40,
 ) -> str:
     """week / month 共通。rows は (行ラベル, その行に含む日付)。"""
-    units = usage.units()
     lines = [header(title, usage, gap), ""]
     if not usage.days:
         lines.append("稼働の記録はありません。")
         return "\n".join(lines + [""] + footer(usage, style))
 
-    totals = [[(u, sum(usage.days[u][d] for d in days)) for u in units] for _, days in rows]
+    units, groups = stack_groups(usage.units())
+    totals = [
+        [(u, sum(usage.days[m][d] for m in groups[u] for d in days)) for u in units] for _, days in rows
+    ]
     row_sums = [sum(v for _, v in t) for t in totals]
     maximum = max(row_sums, default=0)
     label_width = max(display_width(label) for label, _ in rows)
@@ -198,6 +203,18 @@ def render_rows(
     lines += ["", legend, "", "案件別" if usage.by == "client" else "プロジェクト別"]
     lines += unit_bars(usage, style, 24)
     return "\n".join(lines + [""] + footer(usage, style))
+
+
+def stack_groups(units: list[str]) -> tuple[list[str], dict[str, list[str]]]:
+    """積み上げバーの系列。上位 STACK_LIMIT 件のほかは「その他」にまとめる。"""
+    regular = [u for u in units if u not in SPECIAL_FILLS]
+    special = [u for u in units if u in SPECIAL_FILLS]
+    if len(regular) <= STACK_LIMIT + 1:
+        return units, {u: [u] for u in units}
+    shown = regular[:STACK_LIMIT]
+    groups = {u: [u] for u in shown + special}
+    groups[OTHER] = regular[STACK_LIMIT:]
+    return shown + [OTHER] + special, groups
 
 
 def week_rows(start: date) -> list[tuple[str, list[date]]]:

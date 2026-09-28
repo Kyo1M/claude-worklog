@@ -120,7 +120,7 @@ def open_store(args, config: Config) -> Store:
 
 
 def usage_for(args, config: Config, store: Store, start: date, end: date, by: str | None = None) -> Usage:
-    resolver = Resolver(config.aliases, config.clients)
+    resolver = Resolver(config.aliases, config.clients, config.roots)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
     return compute(store, config, resolver, start, end, by or args.by, adjustments)
 
@@ -223,7 +223,7 @@ def cmd_material(args, config: Config) -> int:
     if end < start:
         raise ValueError("--to は --from 以降の日付にしてください")
     store = open_store(args, config)
-    resolver = Resolver(config.aliases, config.clients)
+    resolver = Resolver(config.aliases, config.clients, config.roots)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
     usage = compute(store, config, resolver, start, end, "repo", adjustments)
     data = material_mod.build(store, config, resolver, usage, args.project, args.max_prompts)
@@ -236,7 +236,7 @@ def cmd_material(args, config: Config) -> int:
 
 def cmd_projects(args, config: Config) -> int:
     store = open_store(args, config)
-    resolver = Resolver(config.aliases, config.clients)
+    resolver = Resolver(config.aliases, config.clients, config.roots)
     resolver.learn_names(store.all_cwds())
     lo = day_start_minute(parse_day(args.start, config), config.tz) if args.start else 0
     end = parse_day(args.end, config) if args.end else today(config)
@@ -281,6 +281,8 @@ def cmd_config(args, config: Config) -> int:
     print(f"しきい値: {config.gap_minutes} 分")
     print(f"Claude Code のログ: {config.claude_dir}")
     print(f"Codex のログ: {config.codex_dir}")
+    for root in config.roots:
+        print(f"プロジェクトの親: {root}")
     for old, new in config.aliases:
         print(f"別名: {old} → {new}")
     for name, patterns in config.clients:
