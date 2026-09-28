@@ -19,7 +19,7 @@ def test_fit_pads_and_truncates_by_display_width():
 
 
 def test_bars_start_at_the_same_column_with_fullwidth_names():
-    usage = usage_of({"dxb-data-ai-workflow-context": 205, "kyo1M-business": 108, UNASSIGNED: 10})
+    usage = usage_of({"client-a-dashboard-long-name": 205, "blog": 108, UNASSIGNED: 10})
     lines = unit_bars(usage, Style.for_units(usage.units(), color=False), 24)
     starts = {display_width(line[: min(i for i in (line.find("█"), line.find("░")) if i >= 0)]) for line in lines}
     assert len(starts) == 1
