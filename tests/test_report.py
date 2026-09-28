@@ -124,5 +124,8 @@ def test_csv_by_grain(env):
         "2026-09-29,Client,app,1,0.02",
     ]
     out = io.StringIO()
+    write_csv(usage, "week", out)
+    assert out.getvalue().splitlines()[1:] == ["2026-09-28,Client,app,11,0.18"]  # 週の月曜日
+    out = io.StringIO()
     write_csv(usage, "month", out)
     assert out.getvalue().splitlines()[1] == "2026-09,Client,app,11,0.18"

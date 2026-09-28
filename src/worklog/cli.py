@@ -220,7 +220,7 @@ def cmd_material(args, config: Config) -> int:
         start = end = parse_day(args.date, config)
     else:
         start = parse_day(args.start, config) if args.start else today(config)
-        end = parse_day(args.end, config) if args.end else start if args.start else today(config)
+        end = parse_day(args.end, config) if args.end else today(config)
     if end < start:
         raise ValueError("--to は --from 以降の日付にしてください")
     store = open_store(args, config)

@@ -144,7 +144,7 @@ def unit_bars(usage: Usage, style: Style, bar_width: int) -> list[str]:
     lines = []
     for u in units:
         filled, rest = bar(usage.total(u), maximum, bar_width)
-        lines.append(f"{fit(u, width)}  {style.paint(u, filled)}{style.dim(rest)}  {fmt_minutes(usage.total(u)):>6}")
+        lines.append(f"{fit(u, width)}  {style.paint(u, filled)}{style.dim(rest)}  {fmt_minutes(usage.total(u)):>7}")
     return lines
 
 
