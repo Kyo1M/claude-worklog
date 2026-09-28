@@ -57,8 +57,8 @@ dotfiles      ████▏░░░░░░░░░░░░░░░░░
 ## インストール
 
 ```bash
-git clone https://github.com/Kyo1M/worklog.git
-uv tool install --editable ./worklog
+git clone https://github.com/Kyo1M/claude-worklog.git
+uv tool install --editable ./claude-worklog
 worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(任意)
 ```
 
