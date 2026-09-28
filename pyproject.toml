@@ -1,0 +1,24 @@
+[project]
+name = "worklog"
+version = "0.1.0"
+description = "Claude Code と Codex のログから、プロジェクトごとの稼働時間と作業内容をターミナルで確認する CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = []
+
+[project.scripts]
+worklog = "worklog.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/worklog"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

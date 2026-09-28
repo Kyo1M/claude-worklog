@@ -1,0 +1,129 @@
+"""期間の集計と補正の反映。"""
+
+from __future__ import annotations
+
+import csv
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from pathlib import Path
+
+from .activity import LocalCalendar, active_minutes, day_start_minute, minutes_per_day
+from .config import Config
+from .resolve import NO_CLIENT, UNASSIGNED, Resolver
+from .store import Store
+
+
+class AdjustmentError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Adjustment:
+    day: date
+    project: str
+    minutes: int
+    note: str
+
+
+@dataclass
+class Usage:
+    """集計単位(プロジェクト名 or 案件名)ごとの日別の分。"""
+
+    start: date
+    end: date  # この日を含む
+    by: str
+    days: dict[str, Counter[date]] = field(default_factory=dict)
+    union: Counter[date] = field(default_factory=Counter)  # 全体を 1 本の時間軸に合成した実時間
+    minutes: dict[str, set[int]] = field(default_factory=dict)  # 稼働した分(タイムライン用。補正は含まない)
+    clients: dict[str, str] = field(default_factory=dict)  # プロジェクト名 → 案件名
+    adjusted: bool = False
+
+    def total(self, unit: str) -> int:
+        return sum(self.days.get(unit, Counter()).values())
+
+    def day_total(self, day: date) -> int:
+        return sum(c[day] for c in self.days.values())
+
+    def grand_total(self) -> int:
+        return sum(self.total(u) for u in self.days)
+
+    def units(self) -> list[str]:
+        """合計の多い順。未分類・案件未設定は最後。"""
+        special = (UNASSIGNED, NO_CLIENT)
+        return sorted(self.days, key=lambda u: (u in special, -self.total(u), u))
+
+
+def daterange(start: date, end: date):
+    d = start
+    while d <= end:
+        yield d
+        d += timedelta(days=1)
+
+
+def load_adjustments(path: Path) -> list[Adjustment]:
+    if not path.exists():
+        return []
+    result = []
+    with path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        missing = {"date", "project", "minutes"} - set(reader.fieldnames or [])
+        if missing:
+            raise AdjustmentError(f"{path}: 列 {', '.join(sorted(missing))} がありません(date,project,minutes,note)")
+        for lineno, row in enumerate(reader, start=2):
+            try:
+                result.append(
+                    Adjustment(date.fromisoformat(row["date"].strip()), row["project"].strip(), int(row["minutes"]), (row.get("note") or "").strip())
+                )
+            except (ValueError, AttributeError) as e:
+                raise AdjustmentError(f"{path}:{lineno}: {e}") from e
+    return result
+
+
+def compute(
+    store: Store,
+    config: Config,
+    resolver: Resolver,
+    start: date,
+    end: date,
+    by: str = "repo",
+    adjustments: list[Adjustment] | None = None,
+) -> Usage:
+    tz = config.tz
+    gap = config.gap_minutes
+    lo = day_start_minute(start, tz)
+    hi = day_start_minute(end + timedelta(days=1), tz)
+    resolver.learn_names(store.all_cwds())
+
+    # 期間の外側のイベントとつながる分も数えるため、前後に gap 分だけ広げて読む
+    events: dict[str, list[int]] = defaultdict(list)
+    clients: dict[str, str] = {}
+    for minute, cwd in store.activity_between(lo - gap, hi + gap):
+        project = resolver.project(cwd)
+        unit = project.client if by == "client" else project.name
+        clients[project.name] = project.client
+        events[unit].append(minute)
+
+    calendar = LocalCalendar(tz)
+    usage = Usage(start=start, end=end, by=by, clients=clients)
+    everything: set[int] = set()
+    for unit, minutes in events.items():
+        active = {m for m in active_minutes(minutes, gap) if lo <= m < hi}
+        if not active:
+            continue
+        usage.minutes[unit] = active
+        usage.days[unit] = minutes_per_day(active, calendar)
+        everything |= active
+    usage.union = minutes_per_day(everything, calendar)
+
+    for adj in adjustments or []:
+        if not start <= adj.day <= end:
+            continue
+        unit = adj.project
+        if by == "client":
+            unit = clients.get(adj.project) or resolver.client_for_name(adj.project)
+        usage.days.setdefault(unit, Counter())[adj.day] += adj.minutes
+        usage.union[adj.day] += adj.minutes
+        usage.adjusted = True
+    return usage
+
