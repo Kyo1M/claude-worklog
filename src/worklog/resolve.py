@@ -1,4 +1,4 @@
-"""cwd → リポジトリ(プロジェクト)→ 案件 の判定。"""
+"""cwd → リポジトリ → プロジェクト → 案件 の判定。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ NO_CLIENT = "(案件未設定)"
 @dataclass(frozen=True)
 class Project:
     key: str  # リポジトリの絶対パス。未分類は UNASSIGNED
-    name: str
+    repo: str  # リポジトリの表示名
+    name: str  # プロジェクト名。[projects] に当たらなければリポジトリの表示名
     client: str
 
 
@@ -26,13 +27,16 @@ class Resolver:
         aliases: list[tuple[str, str]],
         clients: list[tuple[str, list[str]]],
         roots: list[str] | None = None,
+        projects: list[tuple[str, list[str]]] | None = None,
     ):
         # 長いパターンを先に当てる
         self.aliases = sorted(((_strip_star(a), _strip_star(b)) for a, b in aliases), key=lambda x: -len(x[0]))
         self.clients = clients
         self.roots = sorted((_strip_star(r) for r in roots or []), key=len, reverse=True)
         self._repo_cache: dict[str, str | None] = {}
+        self.projects = projects or []
         self._names: dict[str, str] = {}
+        self._group_clients: dict[str, str] = {}
 
     def apply_alias(self, cwd: str) -> str:
         """書き換えが止まるまで繰り返す(旧パス → 中間のパス → 現在のパス をたどれるように)。"""
@@ -82,20 +86,47 @@ class Resolver:
         for base, rs in by_base.items():
             for r in rs:
                 self._names[r] = base if len(rs) == 1 else f"{os.path.basename(os.path.dirname(r))}/{base}"
+        self._group_clients.clear()
 
-    def client_for_name(self, name: str) -> str:
-        """表示名から案件を引く(期間内に稼働の無いプロジェクトの補正用)。"""
+    def group(self, repo: str) -> str | None:
+        """[projects] で最初に当たったプロジェクト名。"""
+        for name, patterns in self.projects:
+            if any(fnmatchcase(repo, p) for p in patterns):
+                return name
+        return None
+
+    def repo_name(self, repo: str) -> str:
+        return self._names.get(repo) or os.path.basename(repo)
+
+    def project_client(self, repo: str) -> str:
+        """案件はプロジェクトの単位で決める。所属リポジトリで案件が分かれたら [clients] の上にあるものを採る。"""
+        group = self.group(repo)
+        if group is None:
+            return self.client(repo)
+        if group not in self._group_clients:
+            members = [r for r in self._names if self.group(r) == group] or [repo]
+            self._group_clients[group] = next(
+                (name for name, patterns in self.clients if any(fnmatchcase(r, p) for r in members for p in patterns)),
+                NO_CLIENT,
+            )
+        return self._group_clients[group]
+
+    def describe_name(self, name: str) -> tuple[str, str]:
+        """補正ファイルに書かれた名前(リポジトリ名かプロジェクト名)から (プロジェクト名, 案件) を引く。"""
         for repo, known in self._names.items():
             if known == name:
-                return self.client(repo)
-        return NO_CLIENT
+                return self.group(repo) or known, self.project_client(repo)
+        for repo in self._names:
+            if self.group(repo) == name:
+                return name, self.project_client(repo)
+        return name, NO_CLIENT
 
     def project(self, cwd: str) -> Project:
         repo = self.repo(cwd)
         if repo is None:
-            return Project(UNASSIGNED, UNASSIGNED, UNASSIGNED)
-        name = self._names.get(repo) or os.path.basename(repo)
-        return Project(repo, name, self.client(repo))
+            return Project(UNASSIGNED, UNASSIGNED, UNASSIGNED, UNASSIGNED)
+        repo_name = self.repo_name(repo)
+        return Project(repo, repo_name, self.group(repo) or repo_name, self.project_client(repo))
 
 
 def _strip_star(path: str) -> str:

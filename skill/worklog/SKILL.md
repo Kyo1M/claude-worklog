@@ -17,7 +17,8 @@ CLI が無いとき(`command -v worklog` が空)は、`uv tool install --editabl
 | 今週・先週 | 月曜始まりの週 | `worklog week [週に含まれる日]` |
 | 今月・特定の月 | 1 か月 | `worklog month [YYYY-MM]` |
 
-- 「案件別」「クライアント別」「稼働報告」と言われたら `--by client` を付ける
+- 集計単位の既定はプロジェクト(`[projects]` で束ねたリポジトリのまとまり)
+- 「リポジトリ別」と言われたら `--by repo`、「案件別」「クライアント別」「稼働報告」と言われたら `--by client` を付ける
 - 補正前の数字を求められたら `--raw` を付ける
 - 期間があいまいなら今日(日)・今週(週)・今月(月)を初期値にして進め、どの期間で出したかを書き添える
 
@@ -57,7 +58,7 @@ worklog material --from YYYY-MM-DD --to YYYY-MM-DD --max-prompts 2 --prompt-char
 ## 5. CSV が欲しいとき
 
 ```bash
-worklog export --from YYYY-MM-DD --to YYYY-MM-DD --grain day|week|month [--by client] > worklog.csv
+worklog export --from YYYY-MM-DD --to YYYY-MM-DD --grain day|week|month [--by project|repo|client] > worklog.csv
 ```
 
-列は `period,client,project,minutes,hours`。保存先を聞かれなければカレントディレクトリに書き、パスを伝える。
+列は `period,client,project,repo,minutes,hours`(`repo` は `--by repo` のときだけ埋まる)。保存先を聞かれなければカレントディレクトリに書き、パスを伝える。

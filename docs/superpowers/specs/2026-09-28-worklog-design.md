@@ -33,7 +33,7 @@ adjustments.csv(手での補正)────────────────
 ## 稼働時間の数え方
 
 1. ログの 1 行ごとの時刻を、UTC の「分」(1 分単位)に丸める
-2. 集計単位(プロジェクト、`--by client` のときは案件)ごとに、Claude・Codex・サブエージェント・並行セッションの区別なく分を 1 本の時間軸に合成する。同じ分は 1 回だけ数える
+2. 集計単位(既定はプロジェクト。`--by repo` でリポジトリ、`--by client` で案件)ごとに、Claude・Codex・サブエージェント・並行セッションの区別なく分を 1 本の時間軸に合成する。同じ分は 1 回だけ数える
 3. イベントがあった分を稼働とする。単発のイベントも 1 分になる
 4. 隣り合うイベントの分の差が `gap_minutes`(既定 15)以下なら、その間の分もすべて稼働とする。差が 16 分以上なら区切る
    - 例: 10:00 と 10:15 → 10:00〜10:15 の 16 分。10:00 と 10:16 → 2 分
@@ -48,7 +48,7 @@ adjustments.csv(手での補正)────────────────
 | Claude Code | `type` が `user`・`assistant`・`system`・`queue-operation` で `timestamp` を持つ行 |
 | Codex | `timestamp` を持つすべての行(新形式) |
 
-## プロジェクトと案件の判定
+## リポジトリ・プロジェクト・案件の判定
 
 cwd ごとに、レポートを出す時点で次の順に判定する(設定を直せば過去分にも反映される)。
 
@@ -57,9 +57,12 @@ cwd ごとに、レポートを出す時点で次の順に判定する(設定を
 3. `.git` がファイル(git worktree)なら、`gitdir:` が指す本体のリポジトリに寄せる。本体が旧パスなら `[aliases]` を当ててたどり直す
 4. git リポジトリが見つからないときは、`roots` に書いたディレクトリの直下のフォルダをプロジェクトとみなす(git の無いフォルダ・消えた旧プロジェクト用)
 5. それでも当たらない cwd(`/`、`~` など)は「(未分類)」とし、レポートに出す
-6. リポジトリを `[clients]` のパターン(上から順に最初に当たったもの)で案件に寄せる。当たらなければ「(案件未設定)」
+6. リポジトリを `[projects]` のパターン(上から順に最初に当たったもの)でプロジェクトに束ねる。当たらなければリポジトリ名を 1 つのプロジェクトとする
+7. リポジトリを `[clients]` のパターン(上から順に最初に当たったもの)で案件に寄せる。当たらなければ「(案件未設定)」
 
-プロジェクトの表示名はリポジトリのディレクトリ名。同じ名前が複数あるときは「親ディレクトリ名/名前」にする。
+案件はプロジェクト単位で決める。束ねたリポジトリで案件が分かれたときは `[clients]` の上にあるものを採る。
+
+リポジトリの表示名はディレクトリ名。同じ名前が複数あるときは「親ディレクトリ名/名前」にする。
 
 ## 保存形式(SQLite)
 
@@ -82,13 +85,13 @@ cwd ごとに、レポートを出す時点で次の順に判定する(設定を
 | `worklog day [YYYY-MM-DD]` | 1 日のプロジェクト別の稼働バーと、時間帯のタイムライン(30 分刻み)。省略時は今日 |
 | `worklog week [YYYY-MM-DD]` | その日を含む週(月曜始まり)。日別の積み上げバーとプロジェクト別の合計 |
 | `worklog month [YYYY-MM]` | 月の週別の積み上げバーとプロジェクト別の合計 |
-| `worklog export --from --to [--grain day\|week\|month]` | 縦持ちの CSV(`period,client,project,minutes,hours`)を標準出力へ |
+| `worklog export --from --to [--grain day\|week\|month]` | 縦持ちの CSV(`period,client,project,repo,minutes,hours`。`repo` は `--by repo` のときだけ埋める)を標準出力へ |
 | `worklog material [--date \| --from --to] [--project] [--max-prompts N] [--prompt-chars N] [--json]` | プロジェクトごとの稼働時間・セッション(時刻・ソース・タイトル・依頼文)・期間内の自分のコミット。1 か月分は依頼文を絞って Markdown で約 5 万字 |
 | `worklog projects [--from --to]` | cwd → プロジェクト → 案件の判定結果と分数。名寄せ設定の点検用 |
 | `worklog ingest` | 取り込みだけを行い、読んだファイル数・行数・読み飛ばした行数を出す |
 | `worklog config [--init]` | 設定ファイルの場所と有効な設定を表示。`--init` でひな形を書き出す |
 
-共通オプション: `--by repo|client`(既定 repo)、`--raw`(補正なし)、`--no-ingest`、`--no-color`。
+共通オプション: `--by project|repo|client`(既定 project)、`--raw`(補正なし)、`--no-ingest`、`--no-color`。
 
 ### 表示
 
@@ -123,12 +126,15 @@ codex  = "~/.codex/sessions"
 [aliases]
 "~/Documents/Develop/*" = "~/Developer/*"
 
+[projects]
+"分析基盤" = ["~/Developer/client-a/*"]
+
 [clients]
 "案件A" = ["~/Developer/client-a/*"]
 "個人"  = ["~/Developer/*"]
 ```
 
-補正は `~/.config/worklog/adjustments.csv`(列 `date,project,minutes,note`。`project` は表示名、`minutes` は負も可)。保存先の DB は `~/.local/share/worklog/worklog.db`(`XDG_DATA_HOME` があればそちら)。
+補正は `~/.config/worklog/adjustments.csv`(列 `date,project,minutes,note`。`project` はプロジェクト名かリポジトリ名、`minutes` は負も可)。保存先の DB は `~/.local/share/worklog/worklog.db`(`XDG_DATA_HOME` があればそちら)。
 
 ## 要約 skill
 

@@ -42,6 +42,7 @@ class Config:
     aliases: list[tuple[str, str]] = field(default_factory=list)
     clients: list[tuple[str, list[str]]] = field(default_factory=list)
     roots: list[str] = field(default_factory=list)
+    projects: list[tuple[str, list[str]]] = field(default_factory=list)
 
     @property
     def tz(self) -> tzinfo | None:
@@ -102,13 +103,19 @@ def load_config(path: Path | None = None) -> Config:
         roots = [roots]
     config.roots = [expand(r) for r in roots]
     config.aliases = [(expand(k), expand(v)) for k, v in raw.get("aliases", {}).items()]
-    clients = []
-    for name, patterns in raw.get("clients", {}).items():
+    config.projects = _groups(raw.get("projects", {}))
+    config.clients = _groups(raw.get("clients", {}))
+    return config
+
+
+def _groups(table: dict) -> list[tuple[str, list[str]]]:
+    """{名前: パターン or [パターン]} を書いた順のリストにする。"""
+    groups = []
+    for name, patterns in table.items():
         if isinstance(patterns, str):
             patterns = [patterns]
-        clients.append((name, [expand(p) for p in patterns]))
-    config.clients = clients
-    return config
+        groups.append((name, [expand(p) for p in patterns]))
+    return groups
 
 
 TEMPLATE = """\
@@ -124,6 +131,10 @@ gap_minutes = 15            # イベントの間隔がこれ以下(分)なら稼
 # 旧パス → 現在のパス(前方一致で置き換える。末尾の /* は省略可)
 [aliases]
 # "~/Documents/Develop/*" = "~/Developer/*"
+
+# リポジトリ → プロジェクト(glob。上から順に最初に当たったもの。当たらなければリポジトリ名)
+[projects]
+# "分析基盤" = ["~/Developer/client-a/etl", "~/Developer/client-a/dashboard"]
 
 # リポジトリ → 案件(glob。上から順に最初に当たったもの)
 [clients]

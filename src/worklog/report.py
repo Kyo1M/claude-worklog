@@ -28,7 +28,7 @@ class Adjustment:
 
 @dataclass
 class Usage:
-    """集計単位(プロジェクト名 or 案件名)ごとの日別の分。"""
+    """集計単位(リポジトリ名・プロジェクト名・案件名のどれか)ごとの日別の分。"""
 
     start: date
     end: date  # この日を含む
@@ -36,7 +36,8 @@ class Usage:
     days: dict[str, Counter[date]] = field(default_factory=dict)
     union: Counter[date] = field(default_factory=Counter)  # 全体を 1 本の時間軸に合成した実時間
     minutes: dict[str, set[int]] = field(default_factory=dict)  # 稼働した分(タイムライン用。補正は含まない)
-    clients: dict[str, str] = field(default_factory=dict)  # プロジェクト名 → 案件名
+    clients: dict[str, str] = field(default_factory=dict)  # 集計単位 → 案件名
+    projects: dict[str, str] = field(default_factory=dict)  # 集計単位 → プロジェクト名
     adjusted: bool = False
 
     def total(self, unit: str) -> int:
@@ -86,7 +87,7 @@ def compute(
     resolver: Resolver,
     start: date,
     end: date,
-    by: str = "repo",
+    by: str = "project",
     adjustments: list[Adjustment] | None = None,
 ) -> Usage:
     tz = config.tz
@@ -97,15 +98,15 @@ def compute(
 
     # 期間の外側のイベントとつながる分も数えるため、前後に gap 分だけ広げて読む
     events: dict[str, list[int]] = defaultdict(list)
-    clients: dict[str, str] = {}
+    usage = Usage(start=start, end=end, by=by)
     for minute, cwd in store.activity_between(lo - gap, hi + gap):
         project = resolver.project(cwd)
-        unit = project.client if by == "client" else project.name
-        clients[project.name] = project.client
+        unit = {"repo": project.repo, "project": project.name, "client": project.client}[by]
+        usage.clients[unit] = project.client
+        usage.projects[unit] = project.name
         events[unit].append(minute)
 
     calendar = LocalCalendar(tz)
-    usage = Usage(start=start, end=end, by=by, clients=clients)
     everything: set[int] = set()
     for unit, minutes in events.items():
         active = {m for m in active_minutes(minutes, gap) if lo <= m < hi}
@@ -119,9 +120,10 @@ def compute(
     for adj in adjustments or []:
         if not start <= adj.day <= end:
             continue
-        unit = adj.project
-        if by == "client":
-            unit = clients.get(adj.project) or resolver.client_for_name(adj.project)
+        project, client = resolver.describe_name(adj.project)
+        unit = {"repo": adj.project, "project": project, "client": client}[by]
+        usage.clients.setdefault(unit, client)
+        usage.projects.setdefault(unit, project)
         usage.days.setdefault(unit, Counter())[adj.day] += adj.minutes
         usage.union[adj.day] += adj.minutes
         usage.adjusted = True

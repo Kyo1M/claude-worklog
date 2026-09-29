@@ -200,7 +200,7 @@ def render_rows(
         lines.append(f"{fit(label, label_width)}  {drawn}{pad}  {fmt_minutes(row_sum):>7}")
 
     legend = "  ".join(f"{style.paint(u, style.fill(u, units))} {u}" for u in units)
-    lines += ["", legend, "", "案件別" if usage.by == "client" else "プロジェクト別"]
+    lines += ["", legend, "", {"client": "案件別", "repo": "リポジトリ別"}.get(usage.by, "プロジェクト別")]
     lines += unit_bars(usage, style, 24)
     return "\n".join(lines + [""] + footer(usage, style))
 

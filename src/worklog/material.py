@@ -34,28 +34,32 @@ def build(
 
     projects: dict[str, dict] = {}
 
-    def entry(cwd: str | None) -> dict | None:
+    def entry(cwd: str | None) -> tuple[dict | None, str]:
         project = resolver.project(cwd or "")
-        if project_filter and project.name != project_filter:
-            return None
+        if project_filter and project_filter not in (project.name, project.repo):
+            return None, project.repo
         if project.name not in projects:
             projects[project.name] = {
                 "name": project.name,
                 "client": project.client,
-                "path": None if project.key == UNASSIGNED else project.key,
-                "minutes": usage.total(project.name) if usage.by == "repo" else None,
+                "repos": [],
+                "minutes": usage.total(project.name) if usage.by == "project" else None,
                 "sessions": [],
                 "commits": [],
             }
-        return projects[project.name]
+        target = projects[project.name]
+        if project.key != UNASSIGNED and project.key not in target["repos"]:
+            target["repos"].append(project.key)
+        return target, project.repo
 
     for s in store.sessions_between(lo, hi):
-        target = entry(s.cwd)
+        target, repo_name = entry(s.cwd)
         if target is None:
             continue
         prompts = _unique(prompts_by_session.get((s.source, s.session_id), []))
         target["sessions"].append(
             {
+                "repo": repo_name,
                 "source": s.source,
                 "title": s.title,
                 "start": _iso(calendar, max(s.first_minute, lo)),
@@ -72,8 +76,10 @@ def build(
     since = since.replace(tzinfo=tz) if tz else since.astimezone()
     until = until.replace(tzinfo=tz) if tz else until.astimezone()
     for p in projects.values():
-        if p["path"]:
-            p["commits"] = git_commits(p["path"], since, until)
+        for repo in p["repos"]:
+            name = resolver.repo_name(repo)
+            p["commits"] += [{"repo": name, **c} for c in git_commits(repo, since, until)]
+        p["commits"].sort(key=lambda c: c["time"])
         if p["minutes"] is None:
             p.pop("minutes")
 
@@ -134,8 +140,12 @@ def to_markdown(material: dict) -> str:
         if minutes is not None:
             head += f" {fmt_minutes(minutes)}"
         lines += [head, ""]
+        grouped = len(p["repos"]) > 1
         for s in p["sessions"]:
-            lines.append(f"- {s['start'][5:16].replace('T', ' ')}〜{s['end'][11:16]} [{s['source']}] {s['title'] or '(タイトルなし)'}")
+            where = f"{s['repo']} " if grouped else ""
+            lines.append(
+                f"- {s['start'][5:16].replace('T', ' ')}〜{s['end'][11:16]} [{where}{s['source']}] {s['title'] or '(タイトルなし)'}"
+            )
             for pr in s["prompts"]:
                 lines.append(f"  - {pr['text'].splitlines()[0]}")
             rest = s["prompt_count"] - len(s["prompts"])
@@ -144,6 +154,7 @@ def to_markdown(material: dict) -> str:
         if p["commits"]:
             lines.append("- コミット")
             for c in p["commits"]:
-                lines.append(f"  - {c['hash']} {c['subject']}")
+                where = f"{c['repo']} " if grouped else ""
+                lines.append(f"  - {where}{c['hash']} {c['subject']}")
         lines.append("")
     return "\n".join(lines)

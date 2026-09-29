@@ -64,7 +64,7 @@ def test_week_and_month_by_client(env, capsys):
 def test_export(env, capsys):
     cfg = seed(env)
     assert main(["export", "--from", "2026-09-01", "--to", "2026-09-30", "--grain", "month", "--config", cfg]) == 0
-    assert capsys.readouterr().out.splitlines()[1] == "2026-09,Client,app,17,0.28"
+    assert capsys.readouterr().out.splitlines()[1] == "2026-09,Client,app,,17,0.28"
 
 
 def test_material_json(env, capsys):
@@ -82,7 +82,8 @@ def test_material_json(env, capsys):
 def test_projects_and_config(env, capsys):
     cfg = seed(env)
     assert main(["projects", "--config", cfg]) == 0
-    assert "Client / app" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Client / app" in out and "    app  " in out
     assert main(["config", "--config", cfg]) == 0
     assert "Asia/Tokyo" in capsys.readouterr().out
 
@@ -91,3 +92,9 @@ def test_bad_date_is_an_error(env, capsys):
     cfg = seed(env)
     assert main(["day", "28/09", "--config", cfg]) == 2
     assert "YYYY-MM-DD" in capsys.readouterr().err
+
+
+def test_by_repo_heading(env, capsys):
+    cfg = seed(env)
+    assert main(["week", "2026-09-28", "--by", "repo", "--config", cfg]) == 0
+    assert "リポジトリ別" in capsys.readouterr().out

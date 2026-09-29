@@ -71,7 +71,7 @@ def test_duplicate_names_get_parent_prefix(tmp_path):
     assert resolver.project(str(a)).name == "x/app"
     assert resolver.project(str(b)).name == "y/app"
     assert resolver.project(str(c)).name == "solo"
-    assert resolver.client_for_name("solo") == NO_CLIENT
+    assert resolver.describe_name("solo") == ("solo", NO_CLIENT)
 
 
 def test_aliases_are_applied_until_stable(tmp_path):
@@ -108,3 +108,21 @@ def test_roots_make_projects_without_git(tmp_path):
     assert resolver.repo(str(root / "gone" / "x")) == str(root / "gone")
     assert resolver.repo(str(root)) is None
     assert resolver.repo(str(tmp_path / "other")) is None
+
+
+def test_projects_group_repositories(tmp_path):
+    etl = make_repo(tmp_path / "client" / "etl")
+    board = make_repo(tmp_path / "client" / "dashboard")
+    solo = make_repo(tmp_path / "hobby")
+    resolver = Resolver(
+        [],
+        [("Client", [str(board)])],
+        projects=[("分析基盤", [f"{tmp_path}/client/*"])],
+    )
+    resolver.learn_names([str(etl), str(board), str(solo)])
+    p = resolver.project(str(etl / "src"))
+    assert (p.repo, p.name, p.client) == ("etl", "分析基盤", "Client")  # 案件はプロジェクト単位で決まる
+    assert resolver.project(str(solo)).name == "hobby"
+    assert resolver.describe_name("etl") == ("分析基盤", "Client")
+    assert resolver.describe_name("分析基盤") == ("分析基盤", "Client")
+    assert resolver.describe_name("unknown") == ("unknown", NO_CLIENT)

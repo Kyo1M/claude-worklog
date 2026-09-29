@@ -12,13 +12,13 @@ from worklog.store import Store
 DAY = date(2026, 9, 28)
 
 
-def setup(env, logs: dict[str, list[dict]], clients=None):
+def setup(env, logs: dict[str, list[dict]], clients=None, projects=None):
     root, config = env
     for name, rows in logs.items():
         write_jsonl(config.claude_dir / "p" / f"{name}.jsonl", rows)
     store = Store(config.db_path)
     ingest(store, config)
-    return store, config, Resolver([], clients or [])
+    return store, config, Resolver([], clients or [], projects=projects)
 
 
 def test_parallel_sessions_in_one_project_are_not_double_counted(env):
@@ -119,13 +119,44 @@ def test_csv_by_grain(env):
     out = io.StringIO()
     write_csv(usage, "day", out)
     assert out.getvalue().splitlines() == [
-        "period,client,project,minutes,hours",
-        "2026-09-28,Client,app,10,0.17",
-        "2026-09-29,Client,app,1,0.02",
+        "period,client,project,repo,minutes,hours",
+        "2026-09-28,Client,app,,10,0.17",
+        "2026-09-29,Client,app,,1,0.02",
     ]
     out = io.StringIO()
     write_csv(usage, "week", out)
-    assert out.getvalue().splitlines()[1:] == ["2026-09-28,Client,app,11,0.18"]  # 週の月曜日
+    assert out.getvalue().splitlines()[1:] == ["2026-09-28,Client,app,,11,0.18"]  # 週の月曜日
     out = io.StringIO()
     write_csv(usage, "month", out)
-    assert out.getvalue().splitlines()[1] == "2026-09,Client,app,11,0.18"
+    assert out.getvalue().splitlines()[1] == "2026-09,Client,app,,11,0.18"
+
+
+def test_project_groups_repos_and_unions_their_time(env):
+    root, _ = env
+    etl = str(make_repo(root / "w" / "client" / "etl"))
+    board = str(make_repo(root / "w" / "client" / "board"))
+    store, config, resolver = setup(
+        env,
+        {
+            "s1": [claude_line("2026-09-28 10:00", etl, "s1"), claude_line("2026-09-28 10:09", etl, "s1")],
+            "s2": [claude_line("2026-09-28 10:05", board, "s2"), claude_line("2026-09-28 10:14", board, "s2")],
+        },
+        clients=[("Client", [f"{root}/w/client/*"])],
+        projects=[("分析基盤", [f"{root}/w/client/*"])],
+    )
+    by_project = compute(store, config, resolver, DAY, DAY)
+    assert by_project.days.keys() == {"分析基盤"}
+    assert by_project.total("分析基盤") == 15
+
+    by_repo = compute(store, config, resolver, DAY, DAY, by="repo")
+    assert (by_repo.total("etl"), by_repo.total("board")) == (10, 10)
+    out = io.StringIO()
+    write_csv(by_repo, "day", out)
+    assert out.getvalue().splitlines()[1:] == [
+        "2026-09-28,Client,分析基盤,board,10,0.17",
+        "2026-09-28,Client,分析基盤,etl,10,0.17",
+    ]
+
+    adjustments = [Adjustment(DAY, "etl", 30, "会議")]
+    assert compute(store, config, resolver, DAY, DAY, adjustments=adjustments).total("分析基盤") == 45
+    assert compute(store, config, resolver, DAY, DAY, by="client", adjustments=adjustments).total("Client") == 45

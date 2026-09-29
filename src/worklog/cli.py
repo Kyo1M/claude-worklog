@@ -17,7 +17,7 @@ from .config import TEMPLATE, Config, ConfigError, config_dir, load_config
 from .ingest import ingest
 from .render import Style, fmt_day, fmt_minutes, month_rows, render_day, render_rows, week_rows
 from .report import AdjustmentError, Usage, compute, daterange, load_adjustments
-from .resolve import Resolver
+from .resolve import UNASSIGNED, Resolver
 from .store import Store
 
 
@@ -37,7 +37,9 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", type=_path, help="設定ファイル(既定 ~/.config/worklog/config.toml)")
-    common.add_argument("--by", choices=["repo", "client"], default="repo", help="集計単位(既定 repo)")
+    common.add_argument(
+        "--by", choices=["project", "repo", "client"], default="project", help="集計単位(既定 project)"
+    )
     common.add_argument("--raw", action="store_true", help="補正ファイルを反映しない")
     common.add_argument("--no-ingest", action="store_true", help="実行前の取り込みを省く")
     common.add_argument("--no-color", action="store_true", help="色を付けない")
@@ -121,7 +123,7 @@ def open_store(args, config: Config) -> Store:
 
 
 def usage_for(args, config: Config, store: Store, start: date, end: date, by: str | None = None) -> Usage:
-    resolver = Resolver(config.aliases, config.clients, config.roots)
+    resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
     return compute(store, config, resolver, start, end, by or args.by, adjustments)
 
@@ -199,7 +201,7 @@ def period_of(day: date, grain: str) -> str:
 
 def write_csv(usage: Usage, grain: str, out) -> None:
     writer = csv.writer(out, lineterminator="\n")
-    writer.writerow(["period", "client", "project", "minutes", "hours"])
+    writer.writerow(["period", "client", "project", "repo", "minutes", "hours"])
     periods: dict[str, list[date]] = {}
     for d in daterange(usage.start, usage.end):
         periods.setdefault(period_of(d, grain), []).append(d)
@@ -208,11 +210,10 @@ def write_csv(usage: Usage, grain: str, out) -> None:
             minutes = sum(usage.days[unit][d] for d in days)
             if minutes == 0:
                 continue
-            if usage.by == "client":
-                client, project = unit, ""
-            else:
-                client, project = usage.clients.get(unit, ""), unit
-            writer.writerow([period, client, project, minutes, f"{minutes / 60:.2f}"])
+            client = usage.clients.get(unit, "")
+            project = "" if usage.by == "client" else usage.projects.get(unit, unit)
+            repo = unit if usage.by == "repo" else ""
+            writer.writerow([period, client, project, repo, minutes, f"{minutes / 60:.2f}"])
 
 
 def cmd_material(args, config: Config) -> int:
@@ -224,9 +225,9 @@ def cmd_material(args, config: Config) -> int:
     if end < start:
         raise ValueError("--to は --from 以降の日付にしてください")
     store = open_store(args, config)
-    resolver = Resolver(config.aliases, config.clients, config.roots)
+    resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
-    usage = compute(store, config, resolver, start, end, "repo", adjustments)
+    usage = compute(store, config, resolver, start, end, "project", adjustments)
     data = material_mod.build(store, config, resolver, usage, args.project, args.max_prompts, args.prompt_chars)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -237,21 +238,24 @@ def cmd_material(args, config: Config) -> int:
 
 def cmd_projects(args, config: Config) -> int:
     store = open_store(args, config)
-    resolver = Resolver(config.aliases, config.clients, config.roots)
+    resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     resolver.learn_names(store.all_cwds())
     lo = day_start_minute(parse_day(args.start, config), config.tz) if args.start else 0
     end = parse_day(args.end, config) if args.end else today(config)
     hi = day_start_minute(end + timedelta(days=1), config.tz)
 
-    groups: dict[tuple[str, str, str], list[tuple[str, int]]] = {}
+    tree: dict[tuple[str, str], dict[tuple[str, str], list[tuple[str, int]]]] = {}
     for cwd, minutes in store.activity_by_cwd(lo, hi):
         p = resolver.project(cwd)
-        groups.setdefault((p.client, p.name, p.key), []).append((cwd, minutes))
-    for (client, name, key), cwds in sorted(groups.items(), key=lambda g: (g[0][0], g[0][1])):
-        total = sum(m for _, m in cwds)
-        print(f"{client} / {name}  {key if key != name else ''}  (イベントのある分 {fmt_minutes(total)})")
-        for cwd, minutes in sorted(cwds, key=lambda c: -c[1]):
-            print(f"    {cwd or '(cwd なし)'}  {fmt_minutes(minutes)}")
+        tree.setdefault((p.client, p.name), {}).setdefault((p.repo, p.key), []).append((cwd, minutes))
+    for (client, name), repos in sorted(tree.items()):
+        print(f"{client} / {name}")
+        for (repo, key), cwds in sorted(repos.items()):
+            total = sum(m for _, m in cwds)
+            where = "" if key == UNASSIGNED else f"  {key}"
+            print(f"    {repo}{where}  (イベントのある分 {fmt_minutes(total)})")
+            for cwd, minutes in sorted(cwds, key=lambda c: -c[1]):
+                print(f"        {cwd or '(cwd なし)'}  {fmt_minutes(minutes)}")
     return 0
 
 
@@ -286,6 +290,8 @@ def cmd_config(args, config: Config) -> int:
         print(f"プロジェクトの親: {root}")
     for old, new in config.aliases:
         print(f"別名: {old} → {new}")
+    for name, patterns in config.projects:
+        print(f"プロジェクト: {name} ← {', '.join(patterns)}")
     for name, patterns in config.clients:
         print(f"案件: {name} ← {', '.join(patterns)}")
     return 0

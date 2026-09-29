@@ -1,6 +1,6 @@
 # worklog
 
-Claude Code と Codex のログから、プロジェクトごとの稼働時間をターミナルにバーで表示する CLI です。日・週・月の集計、案件(クライアント)単位の合計、CSV 出力、作業内容の要約用の素材の出力ができます。
+Claude Code と Codex のログから、プロジェクトごとの稼働時間をターミナルにバーで表示する CLI です。日・週・月の集計、複数のリポジトリを束ねたプロジェクト単位・案件(クライアント)単位の合計、CSV 出力、作業内容の要約用の素材の出力ができます。
 
 ログはローカルで読むだけで、外部には送信しません。依存は Python の標準ライブラリだけです。
 
@@ -69,15 +69,15 @@ worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(�
 | `worklog` / `worklog day [YYYY-MM-DD\|yesterday]` | 1 日のプロジェクト別の稼働と時間帯のタイムライン |
 | `worklog week [YYYY-MM-DD]` | その日を含む週(月曜始まり)の日別の積み上げバー |
 | `worklog month [YYYY-MM]` | 月の週別の積み上げバーとプロジェクト別の合計 |
-| `worklog export --from --to [--grain day\|week\|month]` | CSV(`period,client,project,minutes,hours`)を標準出力へ |
+| `worklog export --from --to [--grain day\|week\|month]` | CSV(`period,client,project,repo,minutes,hours`)を標準出力へ |
 | `worklog material [--date \| --from --to] [--json]` | 作業内容の要約の素材(セッションのタイトル・依頼文・期間内のコミット) |
-| `worklog projects` | 作業ディレクトリがどのプロジェクト・案件に判定されたか |
+| `worklog projects` | 作業ディレクトリがどの案件・プロジェクト・リポジトリに判定されたか |
 | `worklog ingest` | ログの取り込みだけを行う |
 | `worklog config [--init]` | 設定の場所と内容を表示する |
 
 共通オプション:
 
-- `--by client`: 案件単位で集計する
+- `--by project | repo | client`: 集計単位(既定はプロジェクト。リポジトリ単位・案件単位にも切り替えられる)
 - `--raw`: 補正ファイルを反映しない
 - `--no-ingest`: 実行前の取り込みを省く
 - `--no-color`: 色を付けない
@@ -87,7 +87,7 @@ worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(�
 ## 稼働時間の数え方
 
 1. ログの 1 行ごとの時刻を 1 分単位に丸める
-2. プロジェクトごとに、Claude Code・Codex・サブエージェント・並行セッションの分を 1 本の時間軸に合成する(同じ分は 1 回だけ数える)
+2. 集計単位(プロジェクトなど)ごとに、Claude Code・Codex・サブエージェント・並行セッション・束ねたリポジトリの分を 1 本の時間軸に合成する(同じ分は 1 回だけ数える)
 3. イベントがあった分を稼働とし、次のイベントまでの空白が `gap_minutes`(既定 15 分)以下なら、その間も稼働とする
 4. 別のプロジェクトどうしは重なってもそれぞれに数える。そのため「合計」は 24 時間を超えることがある。「実時間」は全体を 1 本の時間軸に合成した値
 
@@ -106,15 +106,20 @@ roots = ["~/Developer"]   # git リポジトリでないときは、この直下
 [aliases]
 "~/Documents/Develop/*" = "~/Developer/*"
 
+# リポジトリ → プロジェクト(glob。上から順に最初に当たったもの。当たらなければリポジトリ名のまま)
+[projects]
+"分析基盤" = ["~/Developer/client-a/*"]
+"ブログ" = ["~/Developer/blog", "~/Developer/blog-images"]
+
 # リポジトリ → 案件(glob。上から順に最初に当たったもの)
 [clients]
 "Client A" = ["~/Developer/client-a/*"]
 "個人" = ["~/Developer/*"]
 ```
 
-プロジェクトは作業ディレクトリから親をたどって見つけた git リポジトリです(git worktree は本体のリポジトリにまとめます)。どれにも当たらない時間は「(未分類)」として表示します。`worklog projects` で判定結果を確かめながら、`aliases` と `roots` を足してください。
+作業ディレクトリから親をたどって見つけた git リポジトリを「リポジトリ」とし(git worktree は本体のリポジトリにまとめます)、`[projects]` でプロジェクトに、`[clients]` で案件に束ねます。案件はプロジェクト単位で決まります。どれにも当たらない時間は「(未分類)」として表示します。`worklog projects` で判定結果を確かめながら、`aliases` と `roots` を足してください。
 
-補正は `~/.config/worklog/adjustments.csv` に書きます。`minutes` は負の値も使えます。
+補正は `~/.config/worklog/adjustments.csv` に書きます。`project` にはプロジェクト名もリポジトリ名も書けます。`minutes` は負の値も使えます。
 
 ```csv
 date,project,minutes,note
