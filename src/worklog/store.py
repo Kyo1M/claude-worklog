@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS activity (
     minute INTEGER NOT NULL,
     source TEXT NOT NULL,
     cwd TEXT NOT NULL,
+    automated INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (minute, source, cwd)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS sessions (
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     cwd TEXT,
     first_minute INTEGER,
     last_minute INTEGER,
+    automated INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source, session_id)
 );
 CREATE TABLE IF NOT EXISTS prompts (
@@ -40,6 +42,12 @@ CREATE TABLE IF NOT EXISTS files (
     state TEXT NOT NULL
 );
 """
+# 取り込み方を変えたら上げる。上がると取り込み済みのログを最初から読み直す
+DATA_VERSION = 1
+# automated の値。同じ分に対話と自動実行が重なったら対話(0)を残す。
+# 2 は自動実行を区別する前に取り込んだ行で、読み直しで 0 か 1 に決まる(ログが消えていれば 2 のまま。対話として扱う)
+AUTOMATED = 1
+UNKNOWN = 2
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,20 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
         self.conn.executescript(SCHEMA)
+        if self.conn.execute("PRAGMA user_version").fetchone()[0] < DATA_VERSION:
+            self._upgrade()
+
+    def _upgrade(self) -> None:
+        for table in ("activity", "sessions"):
+            columns = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if "automated" not in columns:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN automated INTEGER NOT NULL DEFAULT 0")
+                self.conn.execute(f"UPDATE {table} SET automated = {UNKNOWN}")
+        # Codex のサブエージェントを 1 セッションとして入れていたので作り直す(Codex はログを消さない)
+        self.conn.execute("DELETE FROM sessions WHERE source = 'codex'")
+        self.conn.execute("DELETE FROM files")
+        self.conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -92,23 +114,31 @@ class Store:
             (path, mark.size, mark.offset, json.dumps(mark.state)),
         )
 
-    def add_activity(self, rows: Iterable[tuple[int, str, str]]) -> None:
-        self.conn.executemany("INSERT OR IGNORE INTO activity (minute, source, cwd) VALUES (?, ?, ?)", rows)
+    def add_activity(self, rows: Iterable[tuple[int, str, str, int]]) -> None:
+        """(minute, source, cwd, automated)。"""
+        self.conn.executemany(
+            """
+            INSERT INTO activity (minute, source, cwd, automated) VALUES (?, ?, ?, ?)
+            ON CONFLICT (minute, source, cwd) DO UPDATE SET automated = MIN(activity.automated, excluded.automated)
+            """,
+            rows,
+        )
 
     def add_prompts(self, rows: Iterable[tuple[str, str, int, str | None, str]]) -> None:
         self.conn.executemany(
             "INSERT OR IGNORE INTO prompts (source, session_id, minute, cwd, text) VALUES (?, ?, ?, ?, ?)", rows
         )
 
-    def merge_sessions(self, rows: Iterable[tuple[str, str, str | None, int, int]]) -> None:
-        """(source, session_id, cwd, first_minute, last_minute) を既存の行と合わせる。"""
+    def merge_sessions(self, rows: Iterable[tuple[str, str, str | None, int, int, int]]) -> None:
+        """(source, session_id, cwd, first_minute, last_minute, automated) を既存の行と合わせる。"""
         self.conn.executemany(
             """
-            INSERT INTO sessions (source, session_id, cwd, first_minute, last_minute) VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions (source, session_id, cwd, first_minute, last_minute, automated) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (source, session_id) DO UPDATE SET
                 cwd = COALESCE(sessions.cwd, excluded.cwd),
                 first_minute = MIN(COALESCE(sessions.first_minute, excluded.first_minute), excluded.first_minute),
-                last_minute = MAX(COALESCE(sessions.last_minute, excluded.last_minute), excluded.last_minute)
+                last_minute = MAX(COALESCE(sessions.last_minute, excluded.last_minute), excluded.last_minute),
+                automated = MIN(sessions.automated, excluded.automated)
             """,
             rows,
         )
@@ -125,27 +155,27 @@ class Store:
 
     # 読み出し
 
-    def activity_between(self, start_minute: int, end_minute: int) -> list[tuple[int, str]]:
-        """[start, end) の (分, cwd)。ソースの違いはまとめる。"""
+    def activity_between(self, start_minute: int, end_minute: int, automated: bool = False) -> list[tuple[int, str]]:
+        """[start, end) の (分, cwd)。ソースの違いはまとめる。automated が False なら自動実行だけの分を除く。"""
         return self.conn.execute(
-            "SELECT DISTINCT minute, cwd FROM activity WHERE minute >= ? AND minute < ?",
+            f"SELECT DISTINCT minute, cwd FROM activity WHERE minute >= ? AND minute < ? {_manual(automated)}",
             (start_minute, end_minute),
         ).fetchall()
 
-    def activity_by_cwd(self, start_minute: int, end_minute: int) -> list[tuple[str, int]]:
+    def activity_by_cwd(self, start_minute: int, end_minute: int, automated: bool = False) -> list[tuple[str, int]]:
         return self.conn.execute(
-            "SELECT cwd, COUNT(DISTINCT minute) FROM activity WHERE minute >= ? AND minute < ? GROUP BY cwd",
+            f"SELECT cwd, COUNT(DISTINCT minute) FROM activity WHERE minute >= ? AND minute < ? {_manual(automated)} GROUP BY cwd",
             (start_minute, end_minute),
         ).fetchall()
 
     def all_cwds(self) -> list[str]:
         return [r[0] for r in self.conn.execute("SELECT DISTINCT cwd FROM activity")]
 
-    def sessions_between(self, start_minute: int, end_minute: int) -> list[SessionRow]:
+    def sessions_between(self, start_minute: int, end_minute: int, automated: bool = False) -> list[SessionRow]:
         rows = self.conn.execute(
-            """
+            f"""
             SELECT source, session_id, title, cwd, first_minute, last_minute FROM sessions
-            WHERE first_minute < ? AND last_minute >= ? ORDER BY first_minute
+            WHERE first_minute < ? AND last_minute >= ? {_manual(automated)} ORDER BY first_minute
             """,
             (end_minute, start_minute),
         ).fetchall()
@@ -157,3 +187,7 @@ class Store:
             (start_minute, end_minute),
         ).fetchall()
         return [PromptRow(*r) for r in rows]
+
+
+def _manual(automated: bool) -> str:
+    return "" if automated else f"AND automated != {AUTOMATED}"

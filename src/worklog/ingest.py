@@ -24,13 +24,16 @@ class IngestStats:
 
 def ingest(store: Store, config: Config) -> IngestStats:
     stats = IngestStats()
+    missing = []
     for source, root in ((claude.SOURCE, config.claude_dir), (codex.SOURCE, config.codex_dir)):
         if not root.exists():
-            stats.warnings.append(f"{source} のログが見つかりません: {root}")
+            missing.append(str(root))
             continue
         for path in sorted(root.rglob("*.jsonl")):
             ingest_file(store, source, path, stats)
             store.commit()
+    if len(missing) == 2:  # 片方だけ使う人には警告しない
+        stats.warnings.append(f"Claude Code と Codex のログが見つかりません: {'、'.join(missing)}")
 
     titles = [(codex.SOURCE, t.session_id, t.title) for t in codex.read_titles(config.codex_index)]
     store.set_titles(titles)
@@ -56,7 +59,7 @@ def ingest_file(store: Store, source: str, path: Path, stats: IngestStats) -> No
         return  # 書き込み途中の行だけなので次回に回す
 
     parser = PARSERS[source](mark.state if mark else None)
-    activity: set[tuple[int, str, str]] = set()
+    activity: dict[tuple[int, str, str], int] = {}
     prompts: list[tuple[str, str, int, str | None, str]] = []
     titles: list[tuple[str, str, str]] = []
     sessions: dict[str, list] = {}
@@ -75,19 +78,21 @@ def ingest_file(store: Store, source: str, path: Path, stats: IngestStats) -> No
             continue
         for record in parser.feed(obj):
             if isinstance(record, Activity):
-                activity.add((record.minute, source, record.cwd or ""))
+                row = (record.minute, source, record.cwd or "")
+                activity[row] = min(activity.get(row, 1), int(record.automated))
                 if record.session_id:
-                    s = sessions.setdefault(record.session_id, [record.cwd, record.minute, record.minute])
+                    s = sessions.setdefault(record.session_id, [record.cwd, record.minute, record.minute, 1])
                     s[0] = s[0] or record.cwd
                     s[1] = min(s[1], record.minute)
                     s[2] = max(s[2], record.minute)
+                    s[3] = min(s[3], int(record.automated))
             elif isinstance(record, Prompt):
                 prompts.append((source, record.session_id, record.minute, record.cwd, record.text))
             elif isinstance(record, Title):
                 titles.append((source, record.session_id, record.title))
 
-    store.add_activity(activity)
-    store.merge_sessions((source, sid, cwd, first, last) for sid, (cwd, first, last) in sessions.items())
+    store.add_activity((*row, automated) for row, automated in activity.items())
+    store.merge_sessions((source, sid, cwd, first, last, auto) for sid, (cwd, first, last, auto) in sessions.items())
     store.add_prompts(prompts)
     store.set_titles(titles)
     store.set_file_mark(key, FileMark(size=size, offset=offset + end + 1, state=parser.state()))

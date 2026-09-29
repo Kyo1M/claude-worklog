@@ -39,6 +39,7 @@ class Config:
     config_path: Path | None = None
     timezone: str | None = None
     gap_minutes: int = 15
+    include_automated: bool = False  # claude -p・codex exec などの自動実行も数えるか
     aliases: list[tuple[str, str]] = field(default_factory=list)
     clients: list[tuple[str, list[str]]] = field(default_factory=list)
     roots: list[str] = field(default_factory=list)
@@ -87,6 +88,10 @@ def load_config(path: Path | None = None) -> Config:
         if not isinstance(gap, int) or gap < 0:
             raise ConfigError(f"{path}: gap_minutes は 0 以上の整数にしてください")
         config.gap_minutes = gap
+    if "include_automated" in raw:
+        if not isinstance(raw["include_automated"], bool):
+            raise ConfigError(f"{path}: include_automated は true か false にしてください")
+        config.include_automated = raw["include_automated"]
 
     sources = raw.get("sources", {})
     if "claude" in sources:
@@ -122,6 +127,7 @@ TEMPLATE = """\
 # worklog の設定ファイル
 # timezone = "Asia/Tokyo"   # 省略時はシステムのローカル
 gap_minutes = 15            # イベントの間隔がこれ以下(分)なら稼働をつなげる
+include_automated = false   # claude -p・codex exec などの自動実行も稼働に数えるなら true
 # roots = ["~/Developer"]   # git リポジトリでないときは、この直下のディレクトリをプロジェクトとみなす
 
 # [sources]

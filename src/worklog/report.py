@@ -66,7 +66,7 @@ def load_adjustments(path: Path) -> list[Adjustment]:
     if not path.exists():
         return []
     result = []
-    with path.open(encoding="utf-8", newline="") as f:
+    with path.open(encoding="utf-8-sig", newline="") as f:  # Excel で保存した BOM 付きも読む
         reader = csv.DictReader(f)
         missing = {"date", "project", "minutes"} - set(reader.fieldnames or [])
         if missing:
@@ -76,8 +76,8 @@ def load_adjustments(path: Path) -> list[Adjustment]:
                 result.append(
                     Adjustment(date.fromisoformat(row["date"].strip()), row["project"].strip(), int(row["minutes"]), (row.get("note") or "").strip())
                 )
-            except (ValueError, AttributeError) as e:
-                raise AdjustmentError(f"{path}:{lineno}: {e}") from e
+            except (ValueError, AttributeError, TypeError) as e:
+                raise AdjustmentError(f"{path}:{lineno}: 値が読めません(date,project,minutes,note)") from e
     return result
 
 
@@ -99,7 +99,7 @@ def compute(
     # 期間の外側のイベントとつながる分も数えるため、前後に gap 分だけ広げて読む
     events: dict[str, list[int]] = defaultdict(list)
     usage = Usage(start=start, end=end, by=by)
-    for minute, cwd in store.activity_between(lo - gap, hi + gap):
+    for minute, cwd in store.activity_between(lo - gap, hi + gap, config.include_automated):
         project = resolver.project(cwd)
         unit = {"repo": project.repo, "project": project.name, "client": project.client}[by]
         usage.clients[unit] = project.client

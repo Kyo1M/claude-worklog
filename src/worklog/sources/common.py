@@ -19,6 +19,7 @@ class Activity:
     minute: int
     cwd: str | None
     session_id: str | None
+    automated: bool = False  # claude -p・codex exec などの自動実行
 
 
 @dataclass(frozen=True)

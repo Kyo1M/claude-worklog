@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from conftest import claude_line, claude_prompt, ts, write_jsonl
 
@@ -102,8 +103,49 @@ def test_sessions_and_titles(env):
     assert row == ("集計の修正", "/w/app", 30)
 
 
-def test_missing_source_is_a_warning(env):
+def test_missing_sources_warn_only_when_both_are_missing(env):
     root, config = env
     config.codex_dir = root / "nothing"
-    stats = ingest(Store(config.db_path), config)
-    assert len(stats.warnings) == 1
+    assert ingest(Store(config.db_path), config).warnings == []
+    config.claude_dir = root / "nothing-either"
+    assert len(ingest(Store(config.db_path), config).warnings) == 1
+
+
+def test_minute_with_manual_and_automated_counts_as_manual(env):
+    root, config = env
+    write_jsonl(config.claude_dir / "p" / "auto.jsonl", [claude_line("2026-09-28 10:00", "/w", "a", entrypoint="sdk-cli")])
+    store = Store(config.db_path)
+    ingest(store, config)
+    assert store.conn.execute("SELECT automated FROM activity").fetchall() == [(1,)]
+    write_jsonl(config.claude_dir / "p" / "manual.jsonl", [claude_line("2026-09-28 10:00", "/w", "m", entrypoint="cli")])
+    ingest(store, config)
+    assert store.conn.execute("SELECT automated FROM activity").fetchall() == [(0,)]
+
+
+def test_old_database_is_upgraded_and_read_again(env):
+    root, config = env
+    config.db_path.parent.mkdir(parents=True)
+    old = sqlite3.connect(config.db_path)
+    old.executescript(
+        """
+        CREATE TABLE activity (minute INTEGER NOT NULL, source TEXT NOT NULL, cwd TEXT NOT NULL,
+            PRIMARY KEY (minute, source, cwd)) WITHOUT ROWID;
+        CREATE TABLE sessions (source TEXT NOT NULL, session_id TEXT NOT NULL, title TEXT, cwd TEXT,
+            first_minute INTEGER, last_minute INTEGER, PRIMARY KEY (source, session_id));
+        CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, offset INTEGER NOT NULL, state TEXT NOT NULL);
+        INSERT INTO activity VALUES (1, 'claude', '/w/auto'), (2, 'claude', '/w/gone');
+        INSERT INTO sessions VALUES ('codex', 'g1', NULL, '/w', 1, 1);
+        """
+    )
+    log = config.claude_dir / "p" / "auto.jsonl"
+    write_jsonl(log, [{"type": "user", "timestamp": "1970-01-01T00:01:00Z", "cwd": "/w/auto", "sessionId": "a", "entrypoint": "sdk-cli"}])
+    old.execute("INSERT INTO files VALUES (?, 1, 999, '{}')", (str(log),))
+    old.commit()
+    old.close()
+
+    store = Store(config.db_path)
+    ingest(store, config)
+    rows = dict(store.conn.execute("SELECT cwd, automated FROM activity"))
+    assert rows == {"/w/auto": 1, "/w/gone": 2}  # 読み直せたものは判定し、ログの無いものは対話として残す
+    assert [r[0] for r in store.activity_between(0, 10)] == [2]
+    assert store.conn.execute("SELECT COUNT(*) FROM sessions WHERE source = 'codex'").fetchone()[0] == 0

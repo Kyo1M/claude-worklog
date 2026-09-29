@@ -57,10 +57,11 @@ dotfiles      ████▏░░░░░░░░░░░░░░░░░
 ## インストール
 
 ```bash
-git clone https://github.com/Kyo1M/claude-worklog.git
-uv tool install --editable ./claude-worklog
+uv tool install git+https://github.com/Kyo1M/claude-worklog
 worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(任意)
 ```
+
+更新は `uv tool upgrade worklog` です。手元で改造するときは clone して `uv tool install --editable ./claude-worklog` で入れてください。
 
 ## 使い方
 
@@ -82,7 +83,7 @@ worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(�
 - `--no-ingest`: 実行前の取り込みを省く
 - `--no-color`: 色を付けない
 
-レポート系のコマンドは、実行のたびに新しく増えたログだけを取り込みます(2 回目以降は一瞬です)。取り込んだ結果は `~/.local/share/worklog/worklog.db` に残るので、Claude Code が古いログを削除しても過去の集計は消えません。worklog を更新して取り込み方が変わったときは、この DB を消すと手元に残っているログから作り直します(元のログが削除済みの期間は戻らないので注意してください)。
+レポート系のコマンドは、実行のたびに新しく増えたログだけを取り込みます(2 回目以降は一瞬です)。取り込んだ結果は `~/.local/share/worklog/worklog.db` に残るので、Claude Code が古いログを削除しても過去の集計は消えません。worklog の更新で取り込み方が変わったときは、次の実行で手元に残っているログを自動で読み直します(元のログが削除済みの期間は、以前の取り込み結果のまま残ります)。
 
 ## 稼働時間の数え方
 
@@ -90,6 +91,7 @@ worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(�
 2. 集計単位(プロジェクトなど)ごとに、Claude Code・Codex・サブエージェント・並行セッション・束ねたリポジトリの分を 1 本の時間軸に合成する(同じ分は 1 回だけ数える)
 3. イベントがあった分を稼働とし、次のイベントまでの空白が `gap_minutes`(既定 15 分)以下なら、その間も稼働とする
 4. 別のプロジェクトどうしは重なってもそれぞれに数える。そのため「合計」は 24 時間を超えることがある。「実時間」は全体を 1 本の時間軸に合成した値
+5. `claude -p`・`codex exec` などの自動実行は数えない(設定の `include_automated = true` で数える)。同じ分に対話のセッションがあれば、その分は数える
 
 測れるのは AI とやりとりしていた時間で、実際の作業時間の下限にあたります。会議など、ログに残らない時間は補正ファイルで足せます。
 
@@ -100,6 +102,7 @@ worklog config --init   # ~/.config/worklog/config.toml のひな形を作る(�
 ```toml
 timezone = "Asia/Tokyo"   # 省略時はシステムのローカル
 gap_minutes = 15
+include_automated = false # claude -p・codex exec などの自動実行も数えるなら true
 roots = ["~/Developer"]   # git リポジトリでないときは、この直下のフォルダをプロジェクトとみなす
 
 # 旧パス → 現在のパス(前方一致。リポジトリを移動したときに)
@@ -119,7 +122,7 @@ roots = ["~/Developer"]   # git リポジトリでないときは、この直下
 
 作業ディレクトリから親をたどって見つけた git リポジトリを「リポジトリ」とし(git worktree は本体のリポジトリにまとめます)、`[projects]` でプロジェクトに、`[clients]` で案件に束ねます。案件はプロジェクト単位で決まります。どれにも当たらない時間は「(未分類)」として表示します。`worklog projects` で判定結果を確かめながら、`aliases` と `roots` を足してください。
 
-補正は `~/.config/worklog/adjustments.csv` に書きます。`project` にはプロジェクト名もリポジトリ名も書けます。`minutes` は負の値も使えます。
+補正は `~/.config/worklog/adjustments.csv` に書きます。`project` にはプロジェクト名もリポジトリ名も書けます。`minutes` は負の値も使えます。Excel で保存した CSV(UTF-8)も読めます。
 
 ```csv
 date,project,minutes,note
@@ -129,6 +132,11 @@ date,project,minutes,note
 ## Claude Code の skill
 
 `skill/worklog/SKILL.md` を `~/.claude/skills/worklog/` に置くと、Claude Code に「今週の稼働と作業内容をまとめて」と頼めるようになります。skill は `worklog` の出力をそのまま見せ、`worklog material` の素材からプロジェクトごとの作業内容を要約します。
+
+```bash
+mkdir -p ~/.claude/skills/worklog
+curl -fsSL https://raw.githubusercontent.com/Kyo1M/claude-worklog/main/skill/worklog/SKILL.md -o ~/.claude/skills/worklog/SKILL.md
+```
 
 ## 対象外
 

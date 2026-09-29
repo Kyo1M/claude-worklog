@@ -39,15 +39,17 @@ class Resolver:
         self._group_clients: dict[str, str] = {}
 
     def apply_alias(self, cwd: str) -> str:
-        """書き換えが止まるまで繰り返す(旧パス → 中間のパス → 現在のパス をたどれるように)。"""
-        for _ in range(10):
-            for old, new in self.aliases:
-                if cwd == old or cwd.startswith(old + "/"):
+        """書き換えが止まるまで繰り返す(旧パス → 中間のパス → 現在のパス をたどれるように)。
+        同じ別名は 1 回だけ使う(変換先が変換元を含むときに繰り返さないように)。"""
+        used: set[int] = set()
+        while True:
+            for i, (old, new) in enumerate(self.aliases):
+                if i not in used and (cwd == old or cwd.startswith(old + "/")):
                     cwd = new + cwd[len(old):]
+                    used.add(i)
                     break
             else:
                 return cwd
-        return cwd
 
     def repo(self, cwd: str) -> str | None:
         if cwd not in self._repo_cache:

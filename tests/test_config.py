@@ -22,7 +22,16 @@ def test_values_are_expanded(tmp_path):
     assert config.clients == [("A", [f"{home}/New/a"])]
 
 
-@pytest.mark.parametrize("body", ['timezone = "Mars/Base"', "gap_minutes = -1", "gap_minutes = ["])
+def test_include_automated(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("include_automated = true\n", encoding="utf-8")
+    assert load_config(path).include_automated
+    assert not load_config(tmp_path / "none.toml").include_automated
+
+
+@pytest.mark.parametrize(
+    "body", ['timezone = "Mars/Base"', "gap_minutes = -1", "gap_minutes = [", 'include_automated = "yes"']
+)
 def test_invalid_config(tmp_path, body):
     path = tmp_path / "config.toml"
     path.write_text(body, encoding="utf-8")

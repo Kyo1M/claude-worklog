@@ -245,7 +245,7 @@ def cmd_projects(args, config: Config) -> int:
     hi = day_start_minute(end + timedelta(days=1), config.tz)
 
     tree: dict[tuple[str, str], dict[tuple[str, str], list[tuple[str, int]]]] = {}
-    for cwd, minutes in store.activity_by_cwd(lo, hi):
+    for cwd, minutes in store.activity_by_cwd(lo, hi, config.include_automated):
         p = resolver.project(cwd)
         tree.setdefault((p.client, p.name), {}).setdefault((p.repo, p.key), []).append((cwd, minutes))
     for (client, name), repos in sorted(tree.items()):
@@ -284,6 +284,7 @@ def cmd_config(args, config: Config) -> int:
     print(f"保存先: {config.db_path}")
     print(f"タイムゾーン: {config.timezone or 'システムのローカル'}")
     print(f"しきい値: {config.gap_minutes} 分")
+    print(f"自動実行: {'数える' if config.include_automated else '数えない'}")
     print(f"Claude Code のログ: {config.claude_dir}")
     print(f"Codex のログ: {config.codex_dir}")
     for root in config.roots:
