@@ -11,7 +11,7 @@ Claude Code と Codex のログから、プロジェクトごとの稼働時間�
 | 対象ログ | Claude Code(`~/.claude/projects/**/*.jsonl`、サブエージェントの `subagents/*.jsonl` を含む)と Codex(`~/.codex/sessions/**/*.jsonl`) |
 | 対象外 | Codex の旧形式ログ(2025 年 8 月ごろまで。各行に時刻と cwd が無い) |
 | 実行環境 | Python 3.11 以上(`tomllib` を使う)。実行時の依存は標準ライブラリだけ。テストは pytest |
-| 導入 | `uv tool install --editable <このリポジトリ>` で `worklog` コマンドを入れる |
+| 導入 | `uv tool install git+https://github.com/Kyo1M/claude-worklog` で `worklog` コマンドを入れる(改造するときは clone して `--editable`) |
 | 公開 | GitHub で公開する。コードと既定値に個人のパス・案件名を入れない(個人の設定は `~/.config/worklog/` に置く) |
 
 測れるのは「AI とやりとりしていた時間」で、実際の作業時間の下限にあたる。会議・資料の読み込み・AI を使わない作業は含まれない。この注記はレポートの末尾にも出す。
@@ -45,14 +45,16 @@ adjustments.csv(手での補正)────────────────
 
 | ソース | 数える行 |
 |---|---|
-| Claude Code | `type` が `user`・`assistant`・`system`・`queue-operation` で `timestamp` を持つ行 |
+| Claude Code | `type` が `user`・`assistant`・`system`・`queue-operation` で `timestamp` を持つ行。cwd が分かる前の行(先頭の `queue-operation`)は直後の行と同じ分なので数えない |
 | Codex | `timestamp` を持つすべての行(新形式) |
+
+自動実行は既定では数えない(`include_automated = true` で数える)。Claude Code は `entrypoint` が `sdk` で始まるセッション(`claude -p`・Agent SDK)、Codex は `session_meta.source` が `exec` のセッションを自動実行とする。同じ分・同じ cwd に対話のセッションがあれば、その分は対話として数える。Codex のサブエージェント(`source` が `{"subagent": ...}`。承認の審査など)は時間を数え、セッションとしては `material` に並べない。
 
 ## リポジトリ・プロジェクト・案件の判定
 
 cwd ごとに、レポートを出す時点で次の順に判定する(設定を直せば過去分にも反映される)。
 
-1. `[aliases]` で cwd を書き換える(旧パス → 現在のパス。前方一致で、書き換えが止まるまで繰り返す)
+1. `[aliases]` で cwd を書き換える(旧パス → 現在のパス。前方一致で、書き換えが止まるまで繰り返す。同じ別名は 1 回だけ使う)
 2. cwd から親へたどり、`.git` があるディレクトリをリポジトリとする。パスが残っていなくても、祖先の `.git` の有無で判定する
 3. `.git` がファイル(git worktree)なら、`gitdir:` が指す本体のリポジトリに寄せる。本体が旧パスなら `[aliases]` を当ててたどり直す
 4. git リポジトリが見つからないときは、`roots` に書いたディレクトリの直下のフォルダをプロジェクトとみなす(git の無いフォルダ・消えた旧プロジェクト用)
@@ -75,6 +77,7 @@ cwd ごとに、レポートを出す時点で次の順に判定する(設定を
 
 - 分と cwd の組で保存するので、同じイベントを二度読んでも結果は変わらない(再開したセッションが履歴を複製していても二重に数えない)
 - `files` に読み込み済みの位置を持ち、次回は増えた分(改行で終わる完全な行)だけを読む。ファイルが前回より小さければ最初から読み直す
+- Codex の依頼文は `event_msg` の `user_message` と、`item_completed` の `UserMessage` から読む。IDE の拡張などが付ける前置きは `## My request for Codex:` より後ろだけを残す
 - 依頼文として保存するのは人が入力した文だけ。ツールの結果・`isMeta`・サブエージェント内の依頼・`<` で始まる自動挿入の文・`/clear` などの組み込みコマンドは除く。スラッシュコマンドは「コマンド名 引数」の形で残す。`material` では同じセッション内の同じ依頼文を 1 件にまとめる
 - タイトルは Claude が `ai-title` 行の `aiTitle`、Codex が `~/.codex/session_index.jsonl` の `thread_name`
 
@@ -117,6 +120,7 @@ client-a-dashboard            ··········▇▇▇▇▇····▇▇�
 ```toml
 timezone = "Asia/Tokyo"   # 省略時はシステムのローカル
 gap_minutes = 15
+include_automated = false
 roots = ["~/Developer"]
 
 [sources]
@@ -150,8 +154,9 @@ codex  = "~/.codex/sessions"
 ## エラー処理
 
 - 壊れた JSON の行は読み飛ばし、`ingest` の結果に件数を出す
-- ソースのディレクトリが無ければ警告を出し、もう一方だけで続ける
-- 補正ファイル・設定ファイルの書式の誤りは、行番号付きで示して終了する
+- ソースのディレクトリが片方だけ無いときは、黙ってもう一方だけで続ける(Claude Code だけ・Codex だけの人がいるため)。両方無いときだけ警告する
+- 取り込み方を変えたら DB の `user_version` を上げる。上がった DB は、次の取り込みで手元に残っているログを最初から読み直す
+- 補正ファイル・設定ファイルの書式の誤りは、行番号付きで示して終了する(補正ファイルは BOM 付きの UTF-8 も読む)
 - `git log` が失敗したリポジトリは、コミットを空にして続ける
 
 ## モジュール構成

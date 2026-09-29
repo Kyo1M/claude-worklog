@@ -1,11 +1,12 @@
 import io
 from datetime import date
 
+import pytest
 from conftest import claude_line, make_repo, ts, write_jsonl
 
 from worklog.cli import write_csv
 from worklog.ingest import ingest
-from worklog.report import Adjustment, compute, load_adjustments
+from worklog.report import Adjustment, AdjustmentError, compute, load_adjustments
 from worklog.resolve import Resolver
 from worklog.store import Store
 
@@ -88,6 +89,30 @@ def test_adjustments_and_raw(env):
     assert usage.total("app") == 31
     assert usage.adjusted
     assert compute(store, config, resolver, DAY, DAY).total("app") == 1
+
+
+def test_automated_runs_are_excluded_by_default(env):
+    root, _ = env
+    app = str(make_repo(root / "app"))
+    store, config, resolver = setup(
+        env,
+        {
+            "s1": [claude_line("2026-09-28 10:00", app, "s1", entrypoint="cli")],
+            "cron": [claude_line("2026-09-28 11:00", app, "cron", entrypoint="sdk-cli")],
+        },
+    )
+    assert compute(store, config, resolver, DAY, DAY).total("app") == 1
+    config.include_automated = True
+    assert compute(store, config, resolver, DAY, DAY).total("app") == 2
+
+
+def test_load_adjustments_from_excel_and_short_rows(tmp_path):
+    path = tmp_path / "adjustments.csv"
+    path.write_text("\ufeffdate,project,minutes,note\n2026-09-28,app,60,定例\n", encoding="utf-8")
+    assert load_adjustments(path) == [Adjustment(DAY, "app", 60, "定例")]
+    path.write_text("date,project,minutes,note\n2026-09-28,app\n", encoding="utf-8")
+    with pytest.raises(AdjustmentError, match=":2:"):
+        load_adjustments(path)
 
 
 def test_load_adjustments(tmp_path):

@@ -76,7 +76,73 @@ def test_codex_session_meta_and_turn_context():
     activity = [r for r in records if isinstance(r, Activity)]
     assert [(r.cwd, r.session_id) for r in activity] == [("/w/a", "c1"), ("/w/a", "c1"), ("/w/b", "c1"), ("/w/b", "c1")]
     assert prompts(records) == ["直して"]
-    assert parser.state() == {"cwd": "/w/b", "session_id": "c1"}
+    assert parser.state() == {"cwd": "/w/b", "session_id": "c1", "automated": False, "subagent": False}
+
+
+def codex_user_message(when: str, text: str) -> dict:
+    item = {"type": "UserMessage", "id": "item-1", "content": [{"type": "text", "text": text}]}
+    return {"type": "event_msg", "timestamp": ts(when), "payload": {"type": "item_completed", "item": item}}
+
+
+def codex_meta(when: str, source, session: str = "c1") -> dict:
+    return {"type": "session_meta", "timestamp": ts(when), "payload": {"id": session, "cwd": "/w/a", "source": source}}
+
+
+def test_codex_user_message_item_drops_ide_context():
+    records = feed_all(
+        CodexParser(),
+        [
+            codex_meta("2026-09-28 10:00", "vscode"),
+            codex_user_message("2026-09-28 10:01", "集計を直して\n"),
+            codex_user_message(
+                "2026-09-28 10:02", "# Context from my IDE setup:\n\n## Active file: a.py\n\n## My request for Codex:\nテストも書いて\n"
+            ),
+            codex_user_message(
+                "2026-09-28 10:03",
+                '<in-app-browser-context source="ambient-ui-state">\nx\n</in-app-browser-context>\n\n## My request for Codex:\n画面を確認して',
+            ),
+            codex_user_message("2026-09-28 10:04", "<task>Run a review</task>"),
+        ],
+    )
+    assert prompts(records) == ["集計を直して", "テストも書いて", "画面を確認して"]
+    assert not any(r.automated for r in records if isinstance(r, Activity))
+
+
+def test_codex_subagent_counts_time_but_is_not_a_session():
+    records = feed_all(
+        CodexParser(),
+        [
+            codex_meta("2026-09-28 10:00", {"subagent": {"other": "guardian"}}, "g1"),
+            codex_user_message("2026-09-28 10:01", "The following is the Codex agent history"),
+        ],
+    )
+    activity = [r for r in records if isinstance(r, Activity)]
+    assert [r.session_id for r in activity] == [None, None]
+    assert prompts(records) == []
+
+
+def test_automated_runs_are_flagged():
+    codex = [r for r in CodexParser().feed(codex_meta("2026-09-28 10:00", "exec")) if isinstance(r, Activity)]
+    assert [r.automated for r in codex] == [True]
+    claude = feed_all(
+        ClaudeParser(),
+        [
+            claude_prompt("2026-09-28 10:00", "/", "日次ログを書いて", entrypoint="sdk-cli"),
+            claude_line("2026-09-28 10:01", "/w", "s2", entrypoint="cli"),
+        ],
+    )
+    assert [r.automated for r in claude if isinstance(r, Activity)] == [True, False]
+
+
+def test_claude_lines_before_cwd_are_not_counted():
+    records = feed_all(
+        ClaudeParser(),
+        [
+            {"type": "queue-operation", "timestamp": ts("2026-09-28 10:00"), "sessionId": "s1"},
+            claude_line("2026-09-28 10:00", "/w/app"),
+        ],
+    )
+    assert [r.cwd for r in records if isinstance(r, Activity)] == ["/w/app"]
 
 
 def test_codex_old_format_is_ignored():

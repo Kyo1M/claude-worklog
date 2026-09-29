@@ -126,3 +126,8 @@ def test_projects_group_repositories(tmp_path):
     assert resolver.describe_name("etl") == ("分析基盤", "Client")
     assert resolver.describe_name("分析基盤") == ("分析基盤", "Client")
     assert resolver.describe_name("unknown") == ("unknown", NO_CLIENT)
+
+
+def test_alias_into_its_own_subdirectory_is_applied_once(tmp_path):
+    resolver = Resolver([(f"{tmp_path}/app", f"{tmp_path}/app/v2")], [])
+    assert resolver.apply_alias(f"{tmp_path}/app/docs") == f"{tmp_path}/app/v2/docs"

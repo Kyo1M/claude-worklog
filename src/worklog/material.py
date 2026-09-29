@@ -52,7 +52,7 @@ def build(
             target["repos"].append(project.key)
         return target, project.repo
 
-    for s in store.sessions_between(lo, hi):
+    for s in store.sessions_between(lo, hi, config.include_automated):
         target, repo_name = entry(s.cwd)
         if target is None:
             continue

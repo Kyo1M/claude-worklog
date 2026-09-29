@@ -7,7 +7,7 @@ description: Claude Code と Codex のログから、プロジェクト・案件
 
 稼働時間の数字は `worklog` CLI が出す。この skill は、期間に合うコマンドを選んで結果を見せ、素材を読んで作業内容を要約する。
 
-CLI が無いとき(`command -v worklog` が空)は、`uv tool install --editable <claude-worklog のリポジトリ>` での導入を案内して止まる。
+CLI が無いとき(`command -v worklog` が空)は、`uv tool install git+https://github.com/Kyo1M/claude-worklog` での導入を案内して止まる。
 
 ## 1. 期間とまとめ方を決める
 
