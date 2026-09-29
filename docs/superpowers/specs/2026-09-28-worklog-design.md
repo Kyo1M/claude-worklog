@@ -87,7 +87,7 @@ cwd ごとに、レポートを出す時点で次の順に判定する(設定を
 | `worklog month [YYYY-MM]` | 月の週別の積み上げバーとプロジェクト別の合計 |
 | `worklog export --from --to [--grain day\|week\|month]` | 縦持ちの CSV(`period,client,project,repo,minutes,hours`。`repo` は `--by repo` のときだけ埋める)を標準出力へ |
 | `worklog material [--date \| --from --to] [--project] [--max-prompts N] [--prompt-chars N] [--json]` | プロジェクトごとの稼働時間・セッション(時刻・ソース・タイトル・依頼文)・期間内の自分のコミット。1 か月分は依頼文を絞って Markdown で約 5 万字 |
-| `worklog projects [--from --to]` | cwd → プロジェクト → 案件の判定結果と分数。名寄せ設定の点検用 |
+| `worklog projects [--from --to]` | 案件 / プロジェクト / リポジトリ / cwd の判定結果と分数。名寄せ設定の点検用 |
 | `worklog ingest` | 取り込みだけを行い、読んだファイル数・行数・読み飛ばした行数を出す |
 | `worklog config [--init]` | 設定ファイルの場所と有効な設定を表示。`--init` でひな形を書き出す |
 
