@@ -149,3 +149,15 @@ def test_old_database_is_upgraded_and_read_again(env):
     assert rows == {"/w/auto": 1, "/w/gone": 2}  # 読み直せたものは判定し、ログの無いものは対話として残す
     assert [r[0] for r in store.activity_between(0, 10)] == [2]
     assert store.conn.execute("SELECT COUNT(*) FROM sessions WHERE source = 'codex'").fetchone()[0] == 0
+
+
+def test_title_before_log_does_not_make_automated_session_manual(env):
+    root, config = env
+    (config.codex_dir.parent / "session_index.jsonl").write_text('{"id": "c1", "thread_name": "夜間の実行"}\n')
+    store = Store(config.db_path)
+    ingest(store, config)
+    meta = {"type": "session_meta", "timestamp": ts("2026-09-28 10:00"), "payload": {"id": "c1", "cwd": "/w", "source": "exec"}}
+    write_jsonl(config.codex_dir / "2026" / "09" / "28" / "rollout-1.jsonl", [meta])
+    ingest(store, config)
+    assert store.sessions_between(0, 10**9) == []
+    assert [s.title for s in store.sessions_between(0, 10**9, automated=True)] == ["夜間の実行"]

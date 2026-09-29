@@ -144,10 +144,10 @@ class Store:
         )
 
     def set_titles(self, rows: Iterable[tuple[str, str, str]]) -> None:
-        """(source, session_id, title)。セッションの行が無ければ作る。"""
+        """(source, session_id, title)。セッションの行が無ければ作る(自動実行かはログの取り込みで決まる)。"""
         self.conn.executemany(
-            """
-            INSERT INTO sessions (source, session_id, title) VALUES (?, ?, ?)
+            f"""
+            INSERT INTO sessions (source, session_id, title, automated) VALUES (?, ?, ?, {AUTOMATED})
             ON CONFLICT (source, session_id) DO UPDATE SET title = excluded.title
             """,
             rows,
