@@ -53,7 +53,7 @@ worklog material --from YYYY-MM-DD --to YYYY-MM-DD --max-prompts 2 --prompt-char
 
 ## 4. 稼働報告の下書き(案件別を求められたとき)
 
-`worklog month YYYY-MM --by client --no-color` の数字と、手順 3 の要約を案件ごとにまとめる。数字は AI とやりとりしていた時間の推定で、会議などを含まない下限であることを下書きの末尾に 1 行添える。補正が要る時間(会議など)は `~/.config/worklog/adjustments.csv` に `date,project,minutes,note` で書けば反映されることを案内する。
+`worklog month YYYY-MM --by client --no-color` の数字と、手順 3 の要約を案件ごとにまとめる。数字は AI とやりとりしていた時間の推定と、議事録に開始・終了時刻がある会議の時間で、それ以外の会議などを含まない下限であることを下書きの末尾に 1 行添える。出力の末尾に「時刻の無い議事録 N 件は数えていません」とあれば、その件数も添える。議事録の無い会議などは `~/.config/worklog/adjustments.csv` に `date,project,minutes,note` で書けば反映されることを案内する。
 
 ## 5. CSV が欲しいとき
 

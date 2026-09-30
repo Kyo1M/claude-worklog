@@ -90,6 +90,10 @@ class Resolver:
                 self._names[r] = base if len(rs) == 1 else f"{os.path.basename(os.path.dirname(r))}/{base}"
         self._group_clients.clear()
 
+    def repos(self) -> list[str]:
+        """learn_names で知ったリポジトリ(と roots 直下のディレクトリ)。"""
+        return sorted(self._names)
+
     def group(self, repo: str) -> str | None:
         """[projects] で最初に当たったプロジェクト名。"""
         for name, patterns in self.projects:

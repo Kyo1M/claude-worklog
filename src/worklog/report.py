@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from .activity import LocalCalendar, active_minutes, day_start_minute, minutes_per_day
+from .activity import LocalCalendar, active_minutes, day_start_minute, local_minute, minutes_per_day
 from .config import Config
+from .meetings import find_meetings
 from .resolve import NO_CLIENT, UNASSIGNED, Resolver
 from .store import Store
 
@@ -35,10 +36,13 @@ class Usage:
     by: str
     days: dict[str, Counter[date]] = field(default_factory=dict)
     union: Counter[date] = field(default_factory=Counter)  # 全体を 1 本の時間軸に合成した実時間
-    minutes: dict[str, set[int]] = field(default_factory=dict)  # 稼働した分(タイムライン用。補正は含まない)
+    minutes: dict[str, set[int]] = field(default_factory=dict)  # 稼働した分(タイムライン用。会議は含み、補正は含まない)
     clients: dict[str, str] = field(default_factory=dict)  # 集計単位 → 案件名
     projects: dict[str, str] = field(default_factory=dict)  # 集計単位 → プロジェクト名
     adjusted: bool = False
+    meetings: int = 0  # 時刻がそろい、稼働に足した会議の件数
+    untimed_meetings: int = 0  # 期間内の議事録のうち start・end が無く足していない件数
+    warnings: list[str] = field(default_factory=list)
 
     def total(self, unit: str) -> int:
         return sum(self.days.get(unit, Counter()).values())
@@ -106,10 +110,25 @@ def compute(
         usage.projects[unit] = project.name
         events[unit].append(minute)
 
+    # AI の稼働とは別に、議事録の会議の時間をそのまま稼働に足す(同じ分は 1 回だけ数える。しきい値ではつなげない)
+    active_by_unit = {unit: active_minutes(minutes, gap) for unit, minutes in events.items()}
+    meetings, usage.warnings = find_meetings(resolver.repos(), config.minutes, start, end) if config.minutes else ([], [])
+    for meeting in meetings:
+        if meeting.start is None or meeting.end is None:
+            usage.untimed_meetings += 1
+            continue
+        project = resolver.project(meeting.repo)
+        unit = {"repo": project.repo, "project": project.name, "client": project.client}[by]
+        usage.clients[unit] = project.client
+        usage.projects[unit] = project.name
+        begin, finish = local_minute(meeting.day, meeting.start, tz), local_minute(meeting.day, meeting.end, tz)
+        active_by_unit.setdefault(unit, set()).update(range(begin, finish))
+        usage.meetings += 1
+
     calendar = LocalCalendar(tz)
     everything: set[int] = set()
-    for unit, minutes in events.items():
-        active = {m for m in active_minutes(minutes, gap) if lo <= m < hi}
+    for unit, all_active in active_by_unit.items():
+        active = {m for m in all_active if lo <= m < hi}
         if not active:
             continue
         usage.minutes[unit] = active

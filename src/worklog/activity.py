@@ -21,7 +21,12 @@ def active_minutes(minutes: Iterable[int], gap: int) -> set[int]:
 
 def day_start_minute(day: date, tz: tzinfo | None) -> int:
     """tz の day の 0 時を UTC の epoch 分で返す。tz が None ならシステムのローカル。"""
-    dt = datetime.combine(day, time())
+    return local_minute(day, time(), tz)
+
+
+def local_minute(day: date, at: time, tz: tzinfo | None) -> int:
+    """tz の day の at 時を UTC の epoch 分で返す。tz が None ならシステムのローカル。"""
+    dt = datetime.combine(day, at)
     dt = dt.replace(tzinfo=tz) if tz else dt.astimezone()
     return int(dt.timestamp() // 60)
 

@@ -125,7 +125,10 @@ def open_store(args, config: Config) -> Store:
 def usage_for(args, config: Config, store: Store, start: date, end: date, by: str | None = None) -> Usage:
     resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
-    return compute(store, config, resolver, start, end, by or args.by, adjustments)
+    usage = compute(store, config, resolver, start, end, by or args.by, adjustments)
+    for w in usage.warnings:
+        print(f"worklog: {w}", file=sys.stderr)
+    return usage
 
 
 def style_for(args, units: list[str]) -> Style:
@@ -228,6 +231,8 @@ def cmd_material(args, config: Config) -> int:
     resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
     usage = compute(store, config, resolver, start, end, "project", adjustments)
+    for w in usage.warnings:
+        print(f"worklog: {w}", file=sys.stderr)
     data = material_mod.build(store, config, resolver, usage, args.project, args.max_prompts, args.prompt_chars)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -285,6 +290,7 @@ def cmd_config(args, config: Config) -> int:
     print(f"タイムゾーン: {config.timezone or 'システムのローカル'}")
     print(f"しきい値: {config.gap_minutes} 分")
     print(f"自動実行: {'数える' if config.include_automated else '数えない'}")
+    print(f"議事録: {', '.join(config.minutes) if config.minutes else '読まない'}")
     print(f"Claude Code のログ: {config.claude_dir}")
     print(f"Codex のログ: {config.codex_dir}")
     for root in config.roots:
