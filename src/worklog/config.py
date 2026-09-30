@@ -30,6 +30,9 @@ def expand(path: str) -> str:
     return expanded.rstrip("/") or "/"
 
 
+DEFAULT_MINUTES = ["docs/minutes/**/*.md"]
+
+
 @dataclass
 class Config:
     claude_dir: Path
@@ -44,6 +47,7 @@ class Config:
     clients: list[tuple[str, list[str]]] = field(default_factory=list)
     roots: list[str] = field(default_factory=list)
     projects: list[tuple[str, list[str]]] = field(default_factory=list)
+    minutes: list[str] = field(default_factory=lambda: list(DEFAULT_MINUTES))  # 議事録(リポジトリからの相対 glob)
 
     @property
     def tz(self) -> tzinfo | None:
@@ -103,6 +107,14 @@ def load_config(path: Path | None = None) -> Config:
     if "adjustments" in raw:
         config.adjustments_path = Path(expand(raw["adjustments"]))
 
+    if "minutes" in raw:
+        minutes = raw["minutes"]
+        if isinstance(minutes, str):
+            minutes = [minutes]
+        if not isinstance(minutes, list) or not all(isinstance(m, str) for m in minutes):
+            raise ConfigError(f"{path}: minutes は glob の文字列かそのリストにしてください")
+        config.minutes = minutes
+
     roots = raw.get("roots", [])
     if isinstance(roots, str):
         roots = [roots]
@@ -129,6 +141,8 @@ TEMPLATE = """\
 gap_minutes = 15            # イベントの間隔がこれ以下(分)なら稼働をつなげる
 include_automated = false   # claude -p・codex exec などの自動実行も稼働に数えるなら true
 # roots = ["~/Developer"]   # git リポジトリでないときは、この直下のディレクトリをプロジェクトとみなす
+# 議事録の置き場所(リポジトリからの相対 glob)。frontmatter の date・start・end がそろった会議の時間を稼働に足す。[] で足さない
+# minutes = ["docs/minutes/**/*.md"]
 
 # [sources]
 # claude = "~/.claude/projects"

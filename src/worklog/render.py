@@ -20,6 +20,7 @@ STACK_LIMIT = 7  # 積み上げバーで個別に色分けする件数。残り�
 OTHER = "その他"
 SPECIAL_FILLS = {UNASSIGNED: "·", NO_CLIENT: "·", OTHER: ":"}
 NOTE = "※ AI とやりとりしていた時間の推定です。会議や AI を使わない作業は含みません。"
+NOTE_WITH_MEETINGS = "※ AI とやりとりしていた時間の推定と、議事録に時刻のある会議の時間です。それ以外の会議や AI を使わない作業は含みません。"
 
 
 def char_width(ch: str) -> int:
@@ -133,7 +134,11 @@ def footer(usage: Usage, style: Style) -> list[str]:
     lines = []
     if usage.adjusted:
         lines.append(style.dim("補正を含みます(--raw で補正前)"))
-    lines.append(style.dim(NOTE))
+    if usage.meetings:
+        lines.append(style.dim(f"議事録の会議 {usage.meetings} 件を含みます"))
+    if usage.untimed_meetings:
+        lines.append(style.dim(f"時刻(start・end)の無い議事録 {usage.untimed_meetings} 件は数えていません"))
+    lines.append(style.dim(NOTE_WITH_MEETINGS if usage.meetings else NOTE))
     return lines
 
 
