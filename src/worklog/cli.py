@@ -231,6 +231,8 @@ def cmd_material(args, config: Config) -> int:
     resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
     usage = compute(store, config, resolver, start, end, "project", adjustments)
+    for w in usage.warnings:
+        print(f"worklog: {w}", file=sys.stderr)
     data = material_mod.build(store, config, resolver, usage, args.project, args.max_prompts, args.prompt_chars)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
