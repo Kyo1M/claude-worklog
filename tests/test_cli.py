@@ -98,3 +98,23 @@ def test_by_repo_heading(env, capsys):
     cfg = seed(env)
     assert main(["week", "2026-09-28", "--by", "repo", "--config", cfg]) == 0
     assert "リポジトリ別" in capsys.readouterr().out
+
+
+def test_project_filter_shows_start_and_end(env, capsys):
+    cfg = seed(env)
+    assert main(["month", "2026-09", "--project", "app", "--config", cfg]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("2026-09  app  ")
+    assert "開始〜終了" in out
+    assert "09/28 (月)     17m  10:00〜10:06 6m、10:30〜10:41 11m" in out
+
+    assert main(["day", "2026-09-28", "--config", cfg]) == 0
+    assert "開始〜終了" not in capsys.readouterr().out
+
+
+def test_unknown_project_is_reported(env, capsys):
+    cfg = seed(env)
+    assert main(["week", "2026-09-28", "--project", "nothing", "--config", cfg]) == 0
+    captured = capsys.readouterr()
+    assert "nothing の稼働はありません" in captured.err
+    assert "稼働の記録はありません" in captured.out

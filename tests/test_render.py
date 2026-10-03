@@ -1,7 +1,9 @@
 from collections import Counter
 from datetime import date
+from zoneinfo import ZoneInfo
 
-from worklog.render import Style, bar, display_width, fit, fmt_minutes, render_rows, unit_bars, week_rows
+from worklog.render import Style, span_lines, bar, display_width, fit, fmt_minutes, render_rows, unit_bars, week_rows
+from worklog.activity import LocalCalendar, day_start_minute
 from worklog.report import Usage
 from worklog.resolve import UNASSIGNED
 
@@ -57,3 +59,19 @@ def test_stack_groups_merge_minor_units():
     assert series == units[:STACK_LIMIT] + [OTHER, UNASSIGNED]
     assert groups[OTHER] == units[STACK_LIMIT:10]
     assert stack_groups(units[:8])[0] == units[:8]
+
+
+def test_span_lines_wrap_and_end_at_24():
+    tz = ZoneInfo("Asia/Tokyo")
+    start = day_start_minute(DAY, tz)
+    minutes = set()
+    for hour in range(0, 23, 2):
+        minutes |= set(range(start + hour * 60, start + hour * 60 + 5))
+    minutes |= set(range(start + 23 * 60 + 50, start + 24 * 60))
+    usage = Usage(start=DAY, end=DAY, by="project", minutes={"a": minutes})
+    lines = span_lines(usage, LocalCalendar(tz), line_width=60)
+    assert lines[0] == "開始〜終了"
+    assert lines[1].startswith("09/28 (月)   1h10m  00:00〜00:05 5m、")
+    assert all(display_width(line) <= 60 for line in lines)
+    assert lines[2].startswith(" " * display_width("09/28 (月)   1h10m  "))
+    assert lines[-1].endswith("23:50〜24:00 10m")

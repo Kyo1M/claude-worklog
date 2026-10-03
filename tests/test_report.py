@@ -185,3 +185,34 @@ def test_project_groups_repos_and_unions_their_time(env):
     adjustments = [Adjustment(DAY, "etl", 30, "会議")]
     assert compute(store, config, resolver, DAY, DAY, adjustments=adjustments).total("分析基盤") == 45
     assert compute(store, config, resolver, DAY, DAY, by="client", adjustments=adjustments).total("Client") == 45
+
+
+def test_project_filter_keeps_only_the_named_project_or_repo(env):
+    root, _ = env
+    etl = str(make_repo(root / "w" / "client" / "etl"))
+    board = str(make_repo(root / "w" / "client" / "board"))
+    blog = str(make_repo(root / "w" / "blog"))
+    store, config, resolver = setup(
+        env,
+        {
+            "s1": [claude_line("2026-09-28 10:00", etl, "s1"), claude_line("2026-09-28 10:09", etl, "s1")],
+            "s2": [claude_line("2026-09-28 10:05", board, "s2"), claude_line("2026-09-28 10:14", board, "s2")],
+            "s3": [claude_line("2026-09-28 11:00", blog, "s3"), claude_line("2026-09-28 11:30", blog, "s3")],
+        },
+        projects=[("分析基盤", [f"{root}/w/client/*"])],
+    )
+    adjustments = [Adjustment(DAY, "etl", 30, "会議"), Adjustment(DAY, "blog", 60, "執筆")]
+
+    usage = compute(store, config, resolver, DAY, DAY, adjustments=adjustments, project="分析基盤")
+    assert usage.days.keys() == {"分析基盤"}
+    assert usage.total("分析基盤") == 45
+    assert usage.union[DAY] == 45
+    assert usage.project == "分析基盤"
+
+    by_repo = compute(store, config, resolver, DAY, DAY, by="repo", project="分析基盤")
+    assert by_repo.days.keys() == {"etl", "board"}
+
+    only_etl = compute(store, config, resolver, DAY, DAY, adjustments=adjustments, project="etl")
+    assert only_etl.total("分析基盤") == 40  # etl の 10 分 + 補正 30 分
+
+    assert not compute(store, config, resolver, DAY, DAY, project="なし").days

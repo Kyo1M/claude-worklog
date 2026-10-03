@@ -1,7 +1,7 @@
 from datetime import date
 from zoneinfo import ZoneInfo
 
-from worklog.activity import LocalCalendar, active_minutes, day_start_minute, minutes_per_day
+from worklog.activity import LocalCalendar, active_minutes, day_start_minute, minutes_per_day, spans
 
 
 def test_gap_of_15_minutes_is_connected():
@@ -34,3 +34,8 @@ def test_local_calendar_time():
     start = day_start_minute(date(2026, 9, 28), tz)
     local = LocalCalendar(tz).local(start + 10 * 60 + 7)
     assert (local.hour, local.minute) == (10, 7)
+
+
+def test_spans_join_consecutive_minutes():
+    assert spans([5, 3, 4, 10, 4]) == [(3, 6), (10, 11)]
+    assert spans([]) == []
