@@ -7,7 +7,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from .activity import LocalCalendar
+from .activity import LocalCalendar, spans
 from .resolve import NO_CLIENT, UNASSIGNED
 from .report import Usage, daterange
 
@@ -126,7 +126,8 @@ def name_width(names: list[str], limit: int = 28) -> int:
 def header(title: str, usage: Usage, gap: int) -> str:
     total = usage.grand_total()
     real = sum(usage.union.values())
-    head = f"{title}  しきい値 {gap} 分・1 分単位"
+    head = f"{title}  {usage.project}" if usage.project else title
+    head = f"{head}  しきい値 {gap} 分・1 分単位"
     return f"{head}    合計 {fmt_minutes(total)}(実時間 {fmt_minutes(real)})"
 
 
@@ -153,7 +154,15 @@ def unit_bars(usage: Usage, style: Style, bar_width: int) -> list[str]:
     return lines
 
 
-def render_day(usage: Usage, gap: int, style: Style, calendar: LocalCalendar, bar_width: int = 24) -> str:
+def render_day(
+    usage: Usage,
+    gap: int,
+    style: Style,
+    calendar: LocalCalendar,
+    bar_width: int = 24,
+    show_spans: bool = False,
+    line_width: int = 100,
+) -> str:
     day = usage.start
     lines = [header(fmt_day(day), usage, gap), ""]
     if not usage.days:
@@ -170,6 +179,8 @@ def render_day(usage: Usage, gap: int, style: Style, calendar: LocalCalendar, ba
             bins = {_bin_of(calendar, m) for m in usage.minutes[u]}
             row = "".join(style.paint(u, "▇") if i in bins else style.dim("·") for i in range(48))
             lines.append(f"{fit(u, width)}  {row}")
+    if show_spans:
+        lines += [""] + span_lines(usage, calendar, line_width)
     return "\n".join(lines + [""] + footer(usage, style))
 
 
@@ -185,8 +196,10 @@ def render_rows(
     gap: int,
     style: Style,
     bar_width: int = 40,
+    calendar: LocalCalendar | None = None,
+    line_width: int = 100,
 ) -> str:
-    """week / month 共通。rows は (行ラベル, その行に含む日付)。"""
+    """week / month 共通。rows は (行ラベル, その行に含む日付)。calendar を渡すと開始〜終了の一覧も出す。"""
     lines = [header(title, usage, gap), ""]
     if not usage.days:
         lines.append("稼働の記録はありません。")
@@ -207,7 +220,39 @@ def render_rows(
     legend = "  ".join(f"{style.paint(u, style.fill(u, units))} {u}" for u in units)
     lines += ["", legend, "", {"client": "案件別", "repo": "リポジトリ別"}.get(usage.by, "プロジェクト別")]
     lines += unit_bars(usage, style, 24)
+    if calendar is not None:
+        lines += [""] + span_lines(usage, calendar, line_width)
     return "\n".join(lines + [""] + footer(usage, style))
+
+
+def span_lines(usage: Usage, calendar: LocalCalendar, line_width: int = 100) -> list[str]:
+    """日ごとに、稼働が続いた範囲を「開始〜終了 分」で並べる。集計単位はまとめて 1 本の時間軸にする。"""
+    by_day: dict[date, set[int]] = {}
+    for minutes in usage.minutes.values():
+        for m in minutes:
+            by_day.setdefault(calendar.date(m), set()).add(m)
+    lines = ["開始〜終了"]
+    for day in sorted(by_day):
+        items = [f"{_clock(calendar, a, day)}〜{_clock(calendar, b, day)} {fmt_minutes(b - a)}" for a, b in spans(by_day[day])]
+        head = f"{day:%m/%d} ({WEEKDAYS[day.weekday()]})  {fmt_minutes(len(by_day[day])):>6}  "
+        indent = " " * display_width(head)
+        line = head
+        for i, item in enumerate(items):
+            text = item + ("、" if i < len(items) - 1 else "")
+            if line != head and line != indent and display_width(line + text) > line_width:
+                lines.append(line.rstrip())
+                line = indent
+            line += text
+        lines.append(line.rstrip())
+    if usage.adjusted:
+        lines.append("補正の分は一覧に含みません")
+    return lines
+
+
+def _clock(calendar: LocalCalendar, minute: int, day: date) -> str:
+    """その日の時刻。翌日の 0 時は 24:00 と書く。"""
+    t = calendar.local(minute)
+    return "24:00" if t.date() > day else f"{t:%H:%M}"
 
 
 def stack_groups(units: list[str]) -> tuple[list[str], dict[str, list[str]]]:

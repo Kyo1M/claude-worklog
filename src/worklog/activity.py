@@ -52,3 +52,14 @@ class LocalCalendar:
 
 def minutes_per_day(active: Iterable[int], calendar: LocalCalendar) -> Counter[date]:
     return Counter(calendar.date(m) for m in active)
+
+
+def spans(minutes: Iterable[int]) -> list[tuple[int, int]]:
+    """連続した分を (最初の分, 最後の分の次) の組にまとめる。"""
+    result: list[tuple[int, int]] = []
+    for m in sorted(set(minutes)):
+        if result and result[-1][1] == m:
+            result[-1] = (result[-1][0], m + 1)
+        else:
+            result.append((m, m + 1))
+    return result

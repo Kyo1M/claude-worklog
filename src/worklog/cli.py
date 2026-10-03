@@ -43,35 +43,36 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--raw", action="store_true", help="補正ファイルを反映しない")
     common.add_argument("--no-ingest", action="store_true", help="実行前の取り込みを省く")
     common.add_argument("--no-color", action="store_true", help="色を付けない")
+    narrow = argparse.ArgumentParser(add_help=False)
+    narrow.add_argument("--project", help="プロジェクト名(またはリポジトリ名)で絞る")
 
     parser = argparse.ArgumentParser(
         prog="worklog", description="Claude Code と Codex のログから、プロジェクトごとの稼働時間を表示する"
     )
     sub = parser.add_subparsers(dest="command")
 
-    p = sub.add_parser("day", parents=[common], help="1 日のプロジェクト別の稼働")
+    p = sub.add_parser("day", parents=[common, narrow], help="1 日のプロジェクト別の稼働")
     p.add_argument("date", nargs="?", help="YYYY-MM-DD / today / yesterday(既定 today)")
     p.set_defaults(func=cmd_day)
 
-    p = sub.add_parser("week", parents=[common], help="週(月曜始まり)の日別の稼働")
+    p = sub.add_parser("week", parents=[common, narrow], help="週(月曜始まり)の日別の稼働")
     p.add_argument("date", nargs="?", help="週に含まれる日 YYYY-MM-DD(既定 today)")
     p.set_defaults(func=cmd_week)
 
-    p = sub.add_parser("month", parents=[common], help="月の週別の稼働")
+    p = sub.add_parser("month", parents=[common, narrow], help="月の週別の稼働")
     p.add_argument("month", nargs="?", help="YYYY-MM(既定 今月)")
     p.set_defaults(func=cmd_month)
 
-    p = sub.add_parser("export", parents=[common], help="稼働時間を CSV で出力")
+    p = sub.add_parser("export", parents=[common, narrow], help="稼働時間を CSV で出力")
     p.add_argument("--from", dest="start", help="開始日 YYYY-MM-DD(既定 今月 1 日)")
     p.add_argument("--to", dest="end", help="終了日 YYYY-MM-DD(既定 今日)")
     p.add_argument("--grain", choices=["day", "week", "month"], default="day")
     p.set_defaults(func=cmd_export)
 
-    p = sub.add_parser("material", parents=[common], help="作業内容の要約の素材")
+    p = sub.add_parser("material", parents=[common, narrow], help="作業内容の要約の素材")
     p.add_argument("--date", help="1 日分 YYYY-MM-DD")
     p.add_argument("--from", dest="start", help="開始日 YYYY-MM-DD")
     p.add_argument("--to", dest="end", help="終了日 YYYY-MM-DD")
-    p.add_argument("--project", help="プロジェクト名で絞る")
     p.add_argument("--max-prompts", type=int, default=8, help="セッションごとの依頼文の上限(既定 8)")
     p.add_argument("--prompt-chars", type=int, default=200, help="依頼文ごとの文字数の上限(既定 200)")
     p.add_argument("--json", action="store_true", help="JSON で出力")
@@ -125,15 +126,26 @@ def open_store(args, config: Config) -> Store:
 def usage_for(args, config: Config, store: Store, start: date, end: date, by: str | None = None) -> Usage:
     resolver = Resolver(config.aliases, config.clients, config.roots, config.projects)
     adjustments = [] if args.raw else load_adjustments(config.adjustments_path)
-    usage = compute(store, config, resolver, start, end, by or args.by, adjustments)
+    usage = compute(store, config, resolver, start, end, by or args.by, adjustments, args.project)
     for w in usage.warnings:
         print(f"worklog: {w}", file=sys.stderr)
+    if args.project and not usage.days:
+        print(f"worklog: {args.project} の稼働はありません(名前は worklog projects で確かめられます)", file=sys.stderr)
     return usage
 
 
 def style_for(args, units: list[str]) -> Style:
     color = sys.stdout.isatty() and not args.no_color and "NO_COLOR" not in os.environ
     return Style.for_units(units, color)
+
+
+def _columns() -> int:
+    return shutil.get_terminal_size((100, 24)).columns
+
+
+def _span_calendar(args, config: Config) -> LocalCalendar | None:
+    """--project のときだけ開始〜終了の一覧を出す。"""
+    return LocalCalendar(config.tz) if args.project else None
 
 
 def bar_width(default: int, name_width: int = 28, extra: int = 12) -> int:
@@ -149,7 +161,8 @@ def cmd_day(args, config: Config) -> int:
     store = open_store(args, config)
     usage = usage_for(args, config, store, day, day)
     style = style_for(args, usage.units())
-    print(render_day(usage, config.gap_minutes, style, LocalCalendar(config.tz), bar_width(24)))
+    calendar = LocalCalendar(config.tz)
+    print(render_day(usage, config.gap_minutes, style, calendar, bar_width(24), bool(args.project), _columns()))
     return 0
 
 
@@ -160,7 +173,8 @@ def cmd_week(args, config: Config) -> int:
     store = open_store(args, config)
     usage = usage_for(args, config, store, start, end)
     title = f"{fmt_day(start)} 〜 {fmt_day(end)}"
-    print(render_rows(title, week_rows(start), usage, config.gap_minutes, style_for(args, usage.units()), bar_width(40, 9)))
+    style = style_for(args, usage.units())
+    print(render_rows(title, week_rows(start), usage, config.gap_minutes, style, bar_width(40, 9), _span_calendar(args, config), _columns()))
     return 0
 
 
@@ -170,7 +184,8 @@ def cmd_month(args, config: Config) -> int:
     store = open_store(args, config)
     usage = usage_for(args, config, store, first, last)
     title = f"{first:%Y-%m}"
-    print(render_rows(title, month_rows(first, last), usage, config.gap_minutes, style_for(args, usage.units()), bar_width(40, 11)))
+    style = style_for(args, usage.units())
+    print(render_rows(title, month_rows(first, last), usage, config.gap_minutes, style, bar_width(40, 11), _span_calendar(args, config), _columns()))
     return 0
 
 

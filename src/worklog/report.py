@@ -34,6 +34,7 @@ class Usage:
     start: date
     end: date  # この日を含む
     by: str
+    project: str | None = None  # 絞り込んだプロジェクト(名前かリポジトリ名)
     days: dict[str, Counter[date]] = field(default_factory=dict)
     union: Counter[date] = field(default_factory=Counter)  # 全体を 1 本の時間軸に合成した実時間
     minutes: dict[str, set[int]] = field(default_factory=dict)  # 稼働した分(タイムライン用。会議は含み、補正は含まない)
@@ -93,7 +94,9 @@ def compute(
     end: date,
     by: str = "project",
     adjustments: list[Adjustment] | None = None,
+    project: str | None = None,
 ) -> Usage:
+    """project を指定すると、プロジェクト名かリポジトリ名が一致するものだけを数える。"""
     tz = config.tz
     gap = config.gap_minutes
     lo = day_start_minute(start, tz)
@@ -102,25 +105,29 @@ def compute(
 
     # 期間の外側のイベントとつながる分も数えるため、前後に gap 分だけ広げて読む
     events: dict[str, list[int]] = defaultdict(list)
-    usage = Usage(start=start, end=end, by=by)
+    usage = Usage(start=start, end=end, by=by, project=project)
     for minute, cwd in store.activity_between(lo - gap, hi + gap, config.include_automated):
-        project = resolver.project(cwd)
-        unit = {"repo": project.repo, "project": project.name, "client": project.client}[by]
-        usage.clients[unit] = project.client
-        usage.projects[unit] = project.name
+        info = resolver.project(cwd)
+        if project and project not in (info.name, info.repo):
+            continue
+        unit = {"repo": info.repo, "project": info.name, "client": info.client}[by]
+        usage.clients[unit] = info.client
+        usage.projects[unit] = info.name
         events[unit].append(minute)
 
     # AI の稼働とは別に、議事録の会議の時間をそのまま稼働に足す(同じ分は 1 回だけ数える。しきい値ではつなげない)
     active_by_unit = {unit: active_minutes(minutes, gap) for unit, minutes in events.items()}
     meetings, usage.warnings = find_meetings(resolver.repos(), config.minutes, start, end) if config.minutes else ([], [])
     for meeting in meetings:
+        info = resolver.project(meeting.repo)
+        if project and project not in (info.name, info.repo):
+            continue
         if meeting.start is None or meeting.end is None:
             usage.untimed_meetings += 1
             continue
-        project = resolver.project(meeting.repo)
-        unit = {"repo": project.repo, "project": project.name, "client": project.client}[by]
-        usage.clients[unit] = project.client
-        usage.projects[unit] = project.name
+        unit = {"repo": info.repo, "project": info.name, "client": info.client}[by]
+        usage.clients[unit] = info.client
+        usage.projects[unit] = info.name
         begin, finish = local_minute(meeting.day, meeting.start, tz), local_minute(meeting.day, meeting.end, tz)
         active_by_unit.setdefault(unit, set()).update(range(begin, finish))
         usage.meetings += 1
@@ -139,12 +146,13 @@ def compute(
     for adj in adjustments or []:
         if not start <= adj.day <= end:
             continue
-        project, client = resolver.describe_name(adj.project)
-        unit = {"repo": adj.project, "project": project, "client": client}[by]
+        name, client = resolver.describe_name(adj.project)
+        if project and project not in (name, adj.project):
+            continue
+        unit = {"repo": adj.project, "project": name, "client": client}[by]
         usage.clients.setdefault(unit, client)
-        usage.projects.setdefault(unit, project)
+        usage.projects.setdefault(unit, name)
         usage.days.setdefault(unit, Counter())[adj.day] += adj.minutes
         usage.union[adj.day] += adj.minutes
         usage.adjusted = True
     return usage
-
