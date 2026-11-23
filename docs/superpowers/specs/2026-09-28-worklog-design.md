@@ -169,7 +169,7 @@ end: "15:00"
   1. 期間に合う `worklog day|week|month` を実行して、バーをそのまま見せる
   2. `worklog material --json` を読み、プロジェクトごとに作業内容を 3〜5 行で要約する
   3. 案件単位の依頼なら `--by client` の数字と要約で稼働報告の下書きを作る
-- 公開版のリポジトリにも同じ `SKILL.md` を `skill/worklog/` として同梱する(正本は `~/Developer/Skills/worklog/`)
+- 公開版のリポジトリには `SKILL.md` を同梱しない。README から Kyo1M/skills の `worklog/SKILL.md` を案内する(写しを持つと正本と食い違うため)
 
 ## エラー処理
 
