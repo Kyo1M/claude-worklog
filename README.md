@@ -150,11 +150,11 @@ date,project,minutes,note
 
 ## Claude Code の skill
 
-`skill/worklog/SKILL.md` を `~/.claude/skills/worklog/` に置くと、Claude Code に「今週の稼働と作業内容をまとめて」と頼めるようになります。skill は `worklog` の出力をそのまま見せ、`worklog material` の素材からプロジェクトごとの作業内容を要約します。
+[Kyo1M/skills](https://github.com/Kyo1M/skills) の `worklog/SKILL.md` を `~/.claude/skills/worklog/` に置くと、Claude Code に「今週の稼働と作業内容をまとめて」と頼めるようになります。skill は `worklog` の出力をそのまま見せ、`worklog material` の素材からプロジェクトごとの作業内容を要約します。
 
 ```bash
 mkdir -p ~/.claude/skills/worklog
-curl -fsSL https://raw.githubusercontent.com/Kyo1M/claude-worklog/main/skill/worklog/SKILL.md -o ~/.claude/skills/worklog/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/Kyo1M/skills/main/worklog/SKILL.md -o ~/.claude/skills/worklog/SKILL.md
 ```
 
 ## 対象外
